@@ -529,7 +529,9 @@
     if (k === 'outside' || k === 'late') p.xp.nerve += 0.4;
     const corner = U.pick(tr().corners);
     r.press = r.press || {};
+    const posBefore = r.order.filter((id) => !r.cars[id].out).indexOf('P') + 1;
     const ok = o.p > 0 && U.chance(o.p);
+    const after = [];
     let text = '';
     let duelRes = { mode: m.mode, rival: rv.id, ok };
     if (o.crash && U.chance(o.crash)) {
@@ -557,7 +559,14 @@
       else duelRes.lose = span(o.fail);
       if (o.cost) duelRes.cost = span(o.cost);
       // a lock-up when it goes wrong: flat-spotted tyres for the next two stages
-      if (!ok && o.lock && U.chance(o.lock)) { r.flat = 2; duelRes.lose = (duelRes.lose || 0) + U.r(0.6, 1.2); }
+      if (!ok && o.lock && U.chance(o.lock)) { r.flat = 2; duelRes.lose = (duelRes.lose || 0) + U.r(0.6, 1.2); after.push('-Flat-spotted tyres for the next two stages'); }
+      if (o.cost) after.push('-The defensive line cost you time to the cars behind');
+      if (o.care) after.push('+Kinder on the car: better reliability for the rest of the race');
+      if (o.towAfter) after.push('+You can tow behind him next lap');
+      if (o.rel) after.push(o.rel > 0 ? `+${rv.name.split(' ').pop()} appreciates it` : `-${rv.name.split(' ').pop()} will not forget it`);
+      if (ok && o.rep) after.push(o.rep > 0 ? '+Reputation: the crowd loved it' : '-Reputation: people saw that');
+      if (m.mode === 'attack' && k === 'slip' && !ok) after.push('+Pressure is building on him');
+      if (m.mode === 'defend' && ok && k !== 'chop') after.push('-Every defence wears your tyres a little more');
       if (o.care) r.care = (r.care || 0) + o.care;
       if (o.rel) GP.adj('drv', rv.id, o.rel, o.rel > 0 ? (k === 'wave' ? 'you let him by' : 'a clean fight') : 'you chopped him');
       if (ok && o.rep) GP.adj('rep', 0, o.rep, o.rep > 0 ? 'a pass round the outside' : 'dirty driving');
@@ -577,6 +586,7 @@
       }
     }
     r.log.unshift({ lap: lapNo(r, 0.5), text, kind: 'me' });
+    r.duelOut = { mode: m.mode, k, label: o.label, rival: rv.id, ok, contact: !duelRes, text, before: posBefore, after, lap: lapNo(r, 0.5) };
     GP.finishStage(duelRes);
   };
 
@@ -633,10 +643,22 @@
       r.log.unshift({ lap: lapNo(r), text: `Lap ${lapNo(r)}: ${ld.name} leads${alive[1] ? ' by ' + (T[alive[1]] - T[alive[0]]).toFixed(1) + 's' : ''}.`, kind: '' });
     }
     // the player's own crash takes over
-    if (r.pCrash) { S.modal = r.pCrash; r.pCrash = null; GP.save(); return; }
-    if (r.pFail) { S.modal = { kind: 'fail', text: `Your ${r.pFail}. You coast to a stop and climb out. Race over.` }; r.pFail = null; GP.save(); return; }
+    if (r.pCrash) { S.modal = r.pCrash; r.pCrash = null; r.duelOut = null; GP.save(); return; }
+    if (r.pFail) { S.modal = { kind: 'fail', text: `Your ${r.pFail}. You coast to a stop and climb out. Race over.` }; r.pFail = null; r.duelOut = null; GP.save(); return; }
+    // how the fight went, before anything else happens
+    if (r.duelOut) {
+      const d = r.duelOut; r.duelOut = null;
+      if (r.cars.P && !r.cars.P.out) { d.pos = r.order.filter((id) => !r.cars[id].out).indexOf('P') + 1; S.modal = { kind: 'duelres', ...d }; GP.save(); return; }
+    }
     GP.teamOrders();
     if (!S.modal && r.stage >= r.stages) GP.finishRace();
+    GP.save();
+  };
+
+  GP.closeDuelResult = function () {
+    const S = GP.S, r = wk().race;
+    S.modal = null;
+    if (r && !r.done) { GP.teamOrders(); if (!S.modal && r.stage >= r.stages) GP.finishRace(); }
     GP.save();
   };
 

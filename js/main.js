@@ -132,6 +132,7 @@
     start(k) { GP.startRace(k, GP.ui.mix || 'std'); GP.ui.mix = 'std'; top(); },
     stage(k) { GP.raceStage(k); },
     duel(k) { GP.resolveDuel(k); },
+    duelOk() { GP.closeDuelResult(); },
     orders(v) { GP.resolveOrders(v === '1'); },
     closeIncident() { GP.closeIncident(); top(); },
     closeModal() { S().modal = null; const r = S().wk && S().wk.race; if (r && !r.done && r.stage >= r.stages) GP.finishRace(); GP.save(); },

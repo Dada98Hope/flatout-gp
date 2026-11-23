@@ -827,12 +827,24 @@ const effLine = (kind, x) => { const e = GP.relEffects ? GP.relEffects(kind, x) 
       if (r.tow && r.tow.id === m.rival && m.mode === 'attack') notes.push('You are right in his tow.');
       if (r.flat > 0) notes.push('Your flat-spotted tyres are shaking the car.');
       if (r.rain) notes.push('Wet track: every move is more dangerous.');
-      const line = (o) => [o.odds, o.risk].filter(Boolean).join(' · ');
+      const line = (o) => [o.odds, o.risk].filter(Boolean).join(' \u00b7 ');
       inner = `<p class="eyebrow">${m.mode === 'attack' ? 'Attack' : 'Under pressure'}</p>
         <h3>${m.mode === 'attack' ? `On ${E(rv.name)}'s gearbox` : `${E(rv.name)} fills your mirrors`}</h3>
         <p>${chip(t)} <b>${E(GP.STYLE_TEXT[D.style])}</b>${mood ? ` ${E(mood)}` : ''}</p>
         ${notes.length ? `<p class="small muted">${E(notes.join(' '))}</p>` : ''}
         <div class="choices">${D.opts.map((o) => btn('duel', o.label, { arg: o.k, sub: `${E(o.sub)}${line(o) ? `<b class="duel-odds ${o.risk === 'High risk' ? 'bad' : ''}">${E(line(o))}</b>` : ''}${fxTags(o.tags)}`, cls: o.k === 'chop' || o.k === 'outside' ? 'choice hot' : 'choice' })).join('')}</div>`;
+    } else if (m.kind === 'duelres') {
+      const rv = GP.drv(m.rival), sur = E(rv.name.split(' ').pop());
+      const head = m.contact ? 'Contact!' : m.mode === 'attack' ? (m.k === 'save' ? 'Car saved' : m.ok ? 'Through!' : 'Still behind') : m.k === 'wave' ? 'Let him go' : m.ok ? 'Door shut' : 'He is through';
+      const good = m.contact ? true : m.mode === 'attack' ? m.ok || m.k === 'save' : m.ok;
+      const dp = m.before - m.pos;
+      const posLine = `P${m.pos}${dp ? ` <span class="${dp > 0 ? 'good' : 'bad'}">${dp > 0 ? '\u25b2' + dp : '\u25bc' + -dp}</span>` : ''} <span class="muted small">was P${m.before}</span>`;
+      inner = `<p class="eyebrow">Lap ${m.lap} \u00b7 ${E(m.label)}</p>
+        <h3 class="${good ? '' : 'bad'}">${head}</h3>
+        <p>${E(m.text)}</p>
+        <div class="kv"><span>After the lap</span><span class="mono">${posLine}</span></div>
+        ${m.after && m.after.length ? `<div style="margin:8px 0 4px">${fxTags(m.after)}</div>` : ''}
+        <div class="choices">${btn('duelOk', 'Carry on', { cls: 'primary', sub: `Back to the race \u00b7 ${sur} is ${m.mode === 'attack' ? (m.ok ? 'behind you now' : 'still ahead') : m.ok ? 'still behind' : 'ahead'}` })}</div>`;
     } else if (m.kind === 'orders') {
       const mate = GP.drv(m.mate), t = GP.myTeam();
       inner = `<p class="eyebrow">Pit board</p><p style="margin:6px 0 12px"><span class="pitboard">Let ${E(mate.name.split(' ').pop())} by</span></p>
