@@ -818,12 +818,21 @@ const effLine = (kind, x) => { const e = GP.relEffects ? GP.relEffects(kind, x) 
     let inner = '', dark = false;
     if (m.kind === 'duel') {
       const rv = GP.drv(m.rival), t = GP.team(rv.teamId);
-      const opts = GP.DUEL[m.mode];
-      const mood = rv.rel < -30 ? `${rv.name} hates you. Expect him to race dirty.` : rv.rel > 30 ? `${rv.name} is a friend. He'll give you room.` : `${rv.name} is a ${rv.aggr > 70 ? 'hard, aggressive' : 'fair'} racer.`;
+      const D = GP.duelOptions(m), r = S.wk.race;
+      const mood = rv.rel <= -60 ? `${rv.name} hates you. He wants you off the road.` : rv.rel < -25 ? `${rv.name} has no love for you.` : rv.rel >= 40 ? `${rv.name} is a friend.` : '';
+      const press = (r.press && r.press[m.rival]) || 0;
+      const notes = [];
+      if (m.mode === 'attack' && press) notes.push(`You have been on his tail for ${press + 1} laps. He is starting to feel it.`);
+      if (m.mode === 'defend' && press) notes.push(`He has attacked ${press + 1} times now. Your tyres are going off from defending.`);
+      if (r.tow && r.tow.id === m.rival && m.mode === 'attack') notes.push('You are right in his tow.');
+      if (r.flat > 0) notes.push('Your flat-spotted tyres are shaking the car.');
+      if (r.rain) notes.push('Wet track: every move is more dangerous.');
+      const line = (o) => [o.odds, o.risk].filter(Boolean).join(' · ');
       inner = `<p class="eyebrow">${m.mode === 'attack' ? 'Attack' : 'Under pressure'}</p>
         <h3>${m.mode === 'attack' ? `On ${E(rv.name)}'s gearbox` : `${E(rv.name)} fills your mirrors`}</h3>
-        <p>${chip(t)} ${E(mood)}</p>
-        <div class="choices">${opts.map((o) => btn('duel', o.label, { arg: o.k, sub: o.sub, cls: o.k === 'chop' || o.k === 'outside' ? 'choice hot' : 'choice' })).join('')}</div>`;
+        <p>${chip(t)} <b>${E(GP.STYLE_TEXT[D.style])}</b>${mood ? ` ${E(mood)}` : ''}</p>
+        ${notes.length ? `<p class="small muted">${E(notes.join(' '))}</p>` : ''}
+        <div class="choices">${D.opts.map((o) => btn('duel', o.label, { arg: o.k, sub: `${E(o.sub)}${line(o) ? `<b class="duel-odds ${o.risk === 'High risk' ? 'bad' : ''}">${E(line(o))}</b>` : ''}${fxTags(o.tags)}`, cls: o.k === 'chop' || o.k === 'outside' ? 'choice hot' : 'choice' })).join('')}</div>`;
     } else if (m.kind === 'orders') {
       const mate = GP.drv(m.mate), t = GP.myTeam();
       inner = `<p class="eyebrow">Pit board</p><p style="margin:6px 0 12px"><span class="pitboard">Let ${E(mate.name.split(' ').pop())} by</span></p>

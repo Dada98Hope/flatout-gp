@@ -383,7 +383,9 @@
         perf += M.perf; wear *= M.wear;
         if (w.flags.engine) relia -= 15;
         if (w.flags.fuel) relia -= 10;
-        relia += team.mech / 10;
+        relia += team.mech / 10 + (r.care || 0);
+        if (r.flat > 0) { perf -= 1.4; r.flat--; }
+        if (r.tow && r.tow.id) { const ia = running.indexOf(r.tow.id); if (ia >= 0 && ia === running.indexOf('P') - 1) perf += 0.8; else r.tow = null; }
         if (key === 'ragged') S.player.xp.nerve += 0.4;
       }
       const lap = GP.lapFromPerf(perf, r.rain);
@@ -439,43 +441,98 @@
     GP.finishStage(null);
   };
 
+  /* ================= WHEEL TO WHEEL =================
+     Every rival has a way of racing: how he attacks, how he defends. Each option is strong
+     against some styles and weak against others, and each carries its own price: time,
+     tyres, the car, his opinion of you, or your life. */
   GP.DUEL = {
-    attack: [
-      { k: 'slip', label: 'Sit in his slipstream', sub: 'Wait for him to make a mistake' },
-      { k: 'brake', label: 'Outbrake him', sub: 'Late and hard on the inside' },
-      { k: 'outside', label: 'Round the outside, flat', sub: 'Brave, fast, no margin' },
-    ],
-    defend: [
-      { k: 'cover', label: 'Cover the inside', sub: 'Defensive line, costs time' },
-      { k: 'clean', label: 'Hold your line', sub: 'Race him fair' },
-      { k: 'chop', label: 'Chop across his nose', sub: 'Dirty. Effective. Dangerous' },
-      { k: 'wave', label: 'Wave him through', sub: 'Let him go' },
-    ],
+    attack: [{ k: 'slip' }, { k: 'brake' }, { k: 'outside' }, { k: 'feint' }, { k: 'save' }],
+    defend: [{ k: 'cover' }, { k: 'clean' }, { k: 'late' }, { k: 'chop' }, { k: 'wave' }],
+  };
+  GP.rivalStyle = function (d, mode) {
+    const hostile = d.rel <= -60;
+    if (mode === 'defend') return hostile || d.aggr >= 66 ? 'dive' : d.skill >= 80 ? 'outside' : 'pressure';
+    return hostile || d.aggr >= 66 ? 'hard' : d.aggr <= 36 || d.rel >= 40 ? 'soft' : 'firm';
+  };
+  GP.STYLE_TEXT = {
+    dive: 'A late-braker. He will throw it up the inside.',
+    outside: 'Fast and smooth. He likes to go round the outside.',
+    pressure: 'Patient. He will sit on your gearbox and wait for a mistake.',
+    hard: 'Defends hard. He has chopped across people before.',
+    soft: 'Gentlemanly. He usually leaves you room.',
+    firm: 'Firm but fair. He makes you earn it.',
+  };
+  GP.duelOptions = function (m) {
+    const S = GP.S, r = wk().race, st = S.player.stats, rv = GP.drv(m.rival), t = tr();
+    const g = m.gain, dg = GP.dangerEff(), rain = !!r.rain, fast = t.power;
+    const style = GP.rivalStyle(rv, m.mode);
+    const press = (r.press && r.press[m.rival]) || 0;
+    const tow = r.tow && r.tow.id === m.rival ? 0.1 : 0;
+    const P = (x) => U.clamp(x, 0.04, 0.92);
+    const wet = rain ? 1.6 : 1;
+    let o;
+    if (m.mode === 'attack') {
+      const sAdj = style === 'hard' ? -0.08 : style === 'soft' ? 0.08 : 0;
+      o = [
+        { k: 'slip', label: 'Sit in his slipstream', sub: 'Stay glued to him and wait for a slip',
+          p: P(0.12 + fast * 0.22 + g * 0.1 + press * 0.12 + (rv.skill < 72 ? 0.06 : 0) + tow), crash: 0,
+          ok: [0.3, 0.5], fail: [0.2, 0.5], tags: ['+No risk', '+Pressure builds every lap you stay there', '~Best on fast circuits'] },
+        { k: 'brake', label: 'Outbrake him', sub: 'Late and hard up the inside',
+          p: P(0.15 + st.craft / 240 + g * 0.08 - (rv.skill - 70) / 300 + (1 - fast) * 0.14 + sAdj * 0.6 + tow),
+          crash: 0.02 * (0.5 + dg) * (style === 'hard' ? 1.8 : 1) * wet * (1.5 - st.cons / 100),
+          ok: [0.3, 0.6], fail: [0.4, 1.0], lock: 0.45, tags: ['+Racecraft', '~Best on twisty circuits', '-A lock-up flat-spots the tyres'] },
+        { k: 'outside', label: 'Round the outside, flat', sub: 'Brave and fast. The crowd loves it',
+          p: P(0.38 + st.nerve / 190 + g * 0.07 + sAdj * 1.2 - (rain ? 0.1 : 0) + tow),
+          crash: 0.05 * (0.5 + dg) * (rain ? 2 : 1) * (1.4 - st.nerve / 100) * (style === 'hard' ? 1.4 : 1),
+          ok: [0.8, 1.4], fail: [1.5, 3], rep: 2, tags: ['+Nerve', '+Reputation if it works', '-Off the line and into the marbles if not', '-Dangerous'] },
+        { k: 'feint', label: 'Dummy, then switch', sub: 'Show him the inside, take the outside',
+          p: P(0.08 + st.craft / 400 + st.cons / 400 + (rv.aggr - 50) / 130 + g * 0.06 + tow), crash: 0.004,
+          ok: [0.3, 0.6], fail: [0.3, 0.8], tags: ['+Works on hot-headed drivers', '~Racecraft and Consistency', '-Useless against a calm head'] },
+        { k: 'save', label: 'Back off and save the car', sub: 'Let him go for now. Look after the engine and tyres',
+          p: 0, crash: 0, fail: [0.6, 1.2], care: 6, tags: ['+Reliability for the rest of the race', '+No risk', '-No attempt'] },
+      ];
+    } else {
+      const vs = (dive, outside, pressure) => (style === 'dive' ? dive : style === 'outside' ? outside : pressure);
+      const tire = press * 0.05;
+      o = [
+        { k: 'cover', label: 'Cover the inside', sub: 'Defensive line into every corner',
+          p: P(vs(0.78, 0.42, 0.62) + st.craft / 500 - g * 0.08 - tire), crash: 0.008,
+          cost: [0.6, 1.2], tags: ['+Stops late-brakers', '-Weak against a move round the outside', '-Slow: the cars behind close in'] },
+        { k: 'clean', label: 'Hold the racing line', sub: 'Fast and fair. Make him earn it',
+          p: P(vs(0.38, 0.72, 0.55) + st.craft / 500 + st.cons / 600 - g * 0.08 - tire), crash: 0.004,
+          rel: 3, tags: ['+No time lost', '+He respects a clean fight', '-Weak against a dive up the inside'] },
+        { k: 'late', label: 'Brake late, defend deep', sub: 'Out-brave him into the corner',
+          p: P(0.40 + st.nerve / 300 + st.craft / 600 + vs(0, 0, 0.05) - g * 0.06 - tire),
+          crash: 0.015 * (0.5 + dg) * wet, lock: 0.4, tags: ['+Nerve', '+Good against any style', '-A lock-up flat-spots the tyres'] },
+        { k: 'chop', label: 'Chop across his nose', sub: 'Dirty. Effective. Dangerous',
+          p: P(0.8 + vs(-0.08, 0, 0.05)), crash: 0.05 * (0.5 + dg) * vs(1.5, 1, 0.8) * (rain ? 1.4 : 1),
+          rel: -14, rep: -1, tags: ['+Nearly always works', '-He will not forget it', '-Dangerous'] },
+        { k: 'wave', label: 'Wave him through', sub: 'Let him go and follow him',
+          p: 0, crash: 0, rel: 6, care: 2, towAfter: true, tags: ['+He owes you one', '+A tow behind him next lap', '-You lose the place'] },
+      ];
+    }
+    // you can now read the fight, so the odds are kept honest and a little against you
+    o.forEach((x) => { if (x.p > 0 && x.k !== 'chop') x.p = P(x.p - (m.mode === 'attack' ? 0.05 : 0.04)); });
+    // the words reflect the real chance: an attack that fails can still come good later in the lap
+    const lift = m.mode === 'attack' ? 0.1 : 0;
+    o.forEach((x) => { const q = x.p + lift; x.odds = x.p <= 0 ? null : q >= 0.72 ? 'Likely' : q >= 0.55 ? 'Better than evens' : q >= 0.4 ? 'About even' : q >= 0.25 ? 'Unlikely' : 'Long shot'; x.risk = x.crash >= 0.03 ? 'High risk' : x.crash >= 0.012 ? 'Some risk' : x.crash > 0.005 ? 'Low risk' : null; });
+    return { style, opts: o };
   };
 
   GP.resolveDuel = function (k) {
-    const S = GP.S, w = wk(), r = w.race, m = S.modal, p = S.player, st = p.stats;
+    const S = GP.S, w = wk(), r = w.race, m = S.modal, p = S.player;
     const rv = GP.drv(m.rival);
+    const { opts } = GP.duelOptions(m);
+    const o = opts.find((x) => x.k === k) || opts[0];
     S.modal = null;
     p.xp.craft += 1;
-    const dg = GP.dangerEff();
-    const dirty = rv.rel < -30, friendly = rv.rel > 30;
-    const relMul = dirty ? 1.8 : friendly ? 0.5 : 1;
+    if (k === 'outside' || k === 'late') p.xp.nerve += 0.4;
     const corner = U.pick(tr().corners);
-    let ok = false, crash = 0, text = '';
-    const g = m.gain;
-    if (m.mode === 'attack') {
-      if (k === 'slip') { ok = U.chance(g > 0 ? U.clamp(0.25 + g * 0.15, 0.15, 0.6) : 0.1); }
-      if (k === 'brake') { ok = U.chance(U.clamp(0.36 + st.craft / 250 + g * 0.08 - rv.skill / 400 + (friendly ? 0.08 : 0) - (dirty ? 0.1 : 0), 0.08, 0.9)); crash = 0.035 * (0.5 + dg) * relMul * (1.5 - st.cons / 100); }
-      if (k === 'outside') { ok = U.chance(U.clamp(0.3 + st.nerve / 220 + g * 0.08 + (friendly ? 0.06 : 0), 0.1, 0.9)); crash = 0.07 * (0.5 + dg) * relMul * (1.4 - st.nerve / 100); }
-    } else {
-      if (k === 'cover') { ok = U.chance(U.clamp(0.55 + st.craft / 300 - g * 0.1, 0.1, 0.92)); crash = 0.01 * relMul; }
-      if (k === 'clean') { ok = U.chance(U.clamp(0.35 + st.craft / 300 - g * 0.1, 0.05, 0.85)); crash = 0.004; GP.adj('drv', rv.id, 3, 'a clean fight'); }
-      if (k === 'chop') { ok = U.chance(0.8); crash = 0.06 * (0.5 + dg) * (dirty ? 1.5 : 1); GP.adj('drv', rv.id, -14, 'you chopped him'); }
-      if (k === 'wave') { ok = false; GP.adj('drv', rv.id, 6, 'you let him by'); }
-    }
+    r.press = r.press || {};
+    const ok = o.p > 0 && U.chance(o.p);
+    let text = '';
     let duelRes = { mode: m.mode, rival: rv.id, ok };
-    if (crash && U.chance(crash)) {
+    if (o.crash && U.chance(o.crash)) {
       const roll = Math.random();
       const meOut = roll < 0.55 || roll >= 0.8;
       const himOut = roll >= 0.55;
@@ -492,13 +549,32 @@
         retire(r, 'P', `${p.name} is out after contact with ${rv.name}!`, 'bad');
         delete r.tent.P;
       }
-      text = himOut && meOut ? 'Contact! Both cars are out.' : himOut ? `Contact! ${rv.name} spins off; you continue.` : `Contact! You are out.`;
+      text = himOut && meOut ? 'Contact! Both cars are out.' : himOut ? `Contact! ${rv.name} spins off; you continue.` : 'Contact! You are out.';
       duelRes = null;
-    } else if (m.mode === 'attack') {
-      text = ok ? `You get by ${rv.name} at ${corner}.` : `${rv.name} holds you off.`;
-      if (ok && k !== 'slip') GP.adj('drv', rv.id, -2, 'you beat him');
     } else {
-      text = ok ? `You keep ${rv.name} behind.` : k === 'wave' ? `You let ${rv.name} through.` : `${rv.name} gets by at ${corner}.`;
+      const span = (a) => (a ? U.r(a[0], a[1]) : 0);
+      if (ok) duelRes.gap = span(o.ok);
+      else duelRes.lose = span(o.fail);
+      if (o.cost) duelRes.cost = span(o.cost);
+      // a lock-up when it goes wrong: flat-spotted tyres for the next two stages
+      if (!ok && o.lock && U.chance(o.lock)) { r.flat = 2; duelRes.lose = (duelRes.lose || 0) + U.r(0.6, 1.2); }
+      if (o.care) r.care = (r.care || 0) + o.care;
+      if (o.rel) GP.adj('drv', rv.id, o.rel, o.rel > 0 ? (k === 'wave' ? 'you let him by' : 'a clean fight') : 'you chopped him');
+      if (ok && o.rep) GP.adj('rep', 0, o.rep, o.rep > 0 ? 'a pass round the outside' : 'dirty driving');
+      // pressure: patient attacks build it; every defence against the same man wears your tyres
+      if (m.mode === 'attack') r.press[rv.id] = k === 'slip' && !ok ? (r.press[rv.id] || 0) + 1 : 0;
+      else r.press[rv.id] = ok ? (r.press[rv.id] || 0) + 1 : 0;
+      r.tow = o.towAfter ? { id: rv.id } : r.tow && r.tow.id === rv.id ? null : r.tow;
+      if (m.mode === 'attack') {
+        if (k === 'save') text = `You ease off behind ${rv.name} and look after the car.`;
+        else if (ok) text = k === 'outside' ? `Round the outside of ${rv.name} at ${corner}! The crowd is on its feet.` : k === 'slip' ? `${rv.name} runs wide at ${corner} and you are through.` : k === 'feint' ? `${rv.name} bites on the dummy. You are past at ${corner}.` : `You dive past ${rv.name} at ${corner}.`;
+        else text = r.flat === 2 && o.lock ? `You lock up into ${corner}. Smoke, a flat-spotted tyre, and ${rv.name} still ahead.` : k === 'outside' ? `No way round ${rv.name}. You are on the marbles and lose time.` : k === 'slip' ? `${rv.name} makes no mistake. You stay with him.` : `${rv.name} holds you off.`;
+        if (ok && k !== 'slip') GP.adj('drv', rv.id, -2, 'you beat him');
+      } else {
+        if (k === 'wave') text = `You wave ${rv.name} through and tuck in behind him.`;
+        else if (ok) text = k === 'cover' ? `You shut the door on ${rv.name}, at the cost of your own pace.` : k === 'chop' ? `You chop across ${rv.name}. He has to lift.` : `You keep ${rv.name} behind.`;
+        else text = r.flat === 2 && o.lock ? `You lock up defending ${corner}. ${rv.name} is through.` : `${rv.name} gets by at ${corner}.`;
+      }
     }
     r.log.unshift({ lap: lapNo(r, 0.5), text, kind: 'me' });
     GP.finishStage(duelRes);
@@ -511,12 +587,15 @@
     if (duel && T.P != null && T[duel.rival] != null) {
       const rv = duel.rival;
       if (duel.mode === 'attack') {
-        if (duel.ok) T.P = Math.min(T.P, T[rv] - 0.3);
-        else T.P = Math.max(T.P, T[rv] + U.r(0.4, 1.1));
+        if (duel.ok) T.P = Math.min(T.P, T[rv] - (duel.gap || 0.3));
+        else T.P = Math.max(T.P, T[rv] + (duel.lose != null ? duel.lose : U.r(0.4, 1.1)));
       } else {
         if (duel.ok) T[rv] = Math.max(T[rv], T.P + U.r(0.3, 0.9));
-        else T[rv] = Math.min(T[rv], T.P - 0.3);
+        else T[rv] = Math.min(T[rv], T.P - 0.3 - (duel.lose || 0) * 0.5);
+        if (!duel.ok && duel.lose) T.P += duel.lose;
       }
+      // a defensive line is slow for both of you: the cars behind close in
+      if (duel.cost) { T.P += duel.cost; if (T[rv] != null) T[rv] += duel.cost; }
     }
     const list = r.prev.filter((id) => T[id] != null);
     const crashes = [];
