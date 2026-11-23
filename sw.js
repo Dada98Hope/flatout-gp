@@ -1,7 +1,7 @@
 /* Flat Out Grand Prix - offline play. Everything the game needs is kept on the phone.
    An update downloads every file fresh (never from the browser's short-term cache), so the
    code and the styles always arrive together; it is used from the next launch. */
-const CACHE = 'flatout-v10';
+const CACHE = 'flatout-v11';
 const FILES = ["./", "index.html", "css/style.css", "manifest.webmanifest", "icons/icon-180.png", "icons/icon-192.png", "icons/icon-512.png", "js/util.js", "js/data.js", "js/names2.js", "js/state.js", "js/saves.js", "js/career.js", "js/develop.js", "js/weekend.js", "js/money.js", "js/relations.js", "js/profiles.js", "js/history.js", "js/teams.js", "js/circuits.js", "js/corners.js", "js/events2.js", "js/growth.js", "js/ui.js", "js/blackjack.js", "js/lifestyle.js", "js/main.js"];
 const fresh = (u) => new Request(u, { cache: 'reload' });
 // one key per file, whatever version tag is on the link

@@ -194,7 +194,9 @@
     const mate = GP.mate();
     w.flags.mateNotes = mate ? (GP.TIER(mate.rel) === 'close' ? 1 : GP.TIER(mate.rel) === 'hostile' ? -1 : 0) : 0;
     const t = GP.myTeam(), c = S.player.contract;
-    if (t && c && S.round >= 2 && !(me.injured > 0)) {
+    // if the paddock is about to ask you the No.1 question, your answer decides, not this
+    const askingNo1 = w.event && w.event.id === 'number_one' && !w.eventDone;
+    if (t && c && S.round >= 2 && !(me.injured > 0) && !askingNo1) {
       if (c.role === '2' && t.rel >= 60 && (!mate || me.pts > mate.pts) && U.chance(0.5)) {
         c.role = '1'; GP.setRoles(t.id);
         if (mate) GP.adj('drv', mate.id, -12, 'demoted for you');
