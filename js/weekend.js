@@ -12,7 +12,71 @@
   const tr = () => GP.track(GP.S.wk.trackId);
   GP.dangerEff = () => Math.max(0.15, tr().danger - (wk().flags.safer ? 0.14 : 0));
 
-  GP.setupQ = (setup, opt) => 1 - setup.reduce((s, v, i) => s + Math.abs(v - opt[i]), 0) / 16;
+  /* setup runs 1 to 8 on each setting. Track data is written on a 1-5 scale, so it is spread
+     across the eight steps with a fixed nudge per circuit, then the team's own car shifts it. */
+  GP.SET_N = 8;
+  GP.optFor = function (tr, shift) {
+    let h = 0; for (const ch of tr.id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return tr.opt.map((v, i) => {
+      const jit = (((h >> (i * 5)) & 31) / 31 - 0.5) * 1.3;
+      return U.clamp(Math.round(1 + (v - 1) * 1.75 + jit + (shift ? shift[i] : 0) * 1.5), 1, GP.SET_N);
+    });
+  };
+  /* this weekend's conditions: usually one setting wants a step more or less than last time */
+  GP.CONDITIONS = [
+    { fx: [[0, 1]], text: "A stiff tailwind along the main straight." },
+    { fx: [[0, -1]], text: "A headwind blowing down the main straight." },
+    { fx: [[1, 1]], text: "The track has been resurfaced. Smooth as a billiard table." },
+    { fx: [[1, -1]], text: "Frost has broken up the surface over the winter. Bumps everywhere." },
+    { fx: [[2, 1]], text: "A heatwave. The track is scorching and the tyres will run hot." },
+    { fx: [[2, -1]], text: "Cold and grey. The tyres will struggle to come up to temperature." },
+    { fx: [[3, 1]], text: "Oil and dust in the braking zones. The fronts will want to lock." },
+    { fx: [[3, -1]], text: "Plenty of grip into the hairpins this year. The rear goes light under braking." },
+    { fx: [[0, -1]], text: "Thin mountain air. The engines are gasping for breath." },
+    { fx: [[0, 1]], text: "Cool, thick air. The engines have never pulled so hard." },
+    { fx: [[1, 1]], text: "Gusty crosswinds on the exposed back section. The car needs to be kept steady." },
+    { fx: [[3, 1]], text: "New, bigger front brakes from the supplier. They bite much harder." },
+    { fx: [[3, -1]], text: "New rear brakes from the supplier, still bedding in." },
+    { fx: [[2, 1]], text: "A new tyre compound this year. It overheats easily." },
+    { fx: [[2, -1]], text: "A harder tyre compound this year. No grip until it is warm." },
+    { fx: [[0, -1]], text: "The engine supplier sends a new camshaft: more top end, less pull out of the hairpins." },
+    { fx: [[1, 1]], text: "A new chief scrutineer insists on a higher ride height." },
+    { fx: [[3, -1]], text: "The straw bales have moved closer to the road. Braking zones are shorter." },
+    { fx: [[1, -2]], text: "Patched repairs where the road crosses the tramlines. It shakes your teeth loose." },
+    { fx: [[2, 2]], text: "A heatwave like nobody can remember. The tar is bubbling." },
+    { fx: [[0, 2]], text: "The long straight has been extended into the old service road." },
+    { fx: [[3, 2]], text: "Diesel spilled at the hairpin last night. The clean-up has left it like glass." },
+    { fx: [[2, 1], [1, -1]], text: "Scorching heat, and the tarmac is softening in places." },
+    { fx: [[1, -1], [3, 1]], text: "A wet week has left the track green and slippery." },
+    { fx: [[0, -1], [3, -1]], text: "The organisers have added a chicane before the fastest corner." },
+    { fx: [[0, 1], [1, 1]], text: "Last year's chicane has been taken out. It is flat out now." },
+    { fx: [[2, 1], [1, -1]], text: "A new, abrasive surface that eats tyres." },
+    { fx: [[2, -1], [3, -1]], text: "A sports car race on Saturday morning has laid down plenty of rubber." },
+    { fx: [[1, -1], [3, 1]], text: "Sand blown across the track from the dunes." },
+    { fx: [[3, 1], [2, -1]], text: "Leaves and pine needles on the racing line through the woods." },
+    { fx: [[1, 1], [3, -1]], text: "The fast sweepers have been resurfaced. The slow corners have not." },
+    { fx: [[2, -1], [1, -1]], text: "Freezing at dawn, warm by lunchtime. Nobody can keep the tyres right." },
+    { fx: [[3, 1], [1, -1]], text: "The braking zones are rippled from lorries using the road all year." },
+    { fx: [[0, 1], [1, 1]], text: "A new banked curve makes the circuit much faster." },
+    { fx: [[2, -1], [3, 1]], text: "Heavy rain overnight has washed all the rubber away." },
+    { fx: [[0, -1], [2, 1]], text: "Heavy, humid air before a storm." },
+    { fx: [[1, -1], [0, 1]], text: "The pit straight is new, but the rest is old and patched." },
+    { fx: [[2, 1], [1, 1]], text: "The track is in perfect condition. Grip everywhere." },
+    { fx: [[0, -1], [1, -1]], text: "A landslip has narrowed the road at the fastest corner." },
+    { fx: [[0, -1], [3, -1]], text: "A tight new hairpin replaces the old sweeper." },
+    { fx: [[2, -1], [3, 1], [1, -1]], text: "Cement dust from the building site next door is all over the track." },
+    { fx: [[0, 1], [2, 1], [1, 1]], text: "A new, faster layout over the old airfield runways." },
+    { fx: [[0, -1], [1, -1], [3, -1]], text: "A twisty new loop through the town has been added this year." },
+  ];
+  GP.rollConditions = () => (U.chance(0.1) ? { fx: [], text: 'Settled weather and a familiar surface. No surprises.' } : U.pick(GP.CONDITIONS));
+  // older saves stored a single setting as { i, d }
+  GP.applyConditions = (opt, c) => {
+    const fx = !c ? [] : c.fx || (c.i >= 0 ? [[c.i, c.d]] : []);
+    const out = opt.slice();
+    fx.forEach(([i, d]) => { out[i] = U.clamp(out[i] + d, 1, GP.SET_N); });
+    return out;
+  };
+  GP.setupQ = (setup, opt) => U.clamp(1 - setup.reduce((s, v, i) => s + Math.abs(v - opt[i]), 0) / 24, 0, 1);
 
   function aiQ(d) {
     const w = wk();
@@ -122,7 +186,8 @@
     w.runsLeft--;
     p.xp.feedback += 0.7;
     const rain = w.rainQ;
-    const crashP = 0.005 * (0.5 + GP.dangerEff()) * playerRisk(rain);
+    // every run is a risk: once the car feels right, the question is whether to keep pushing
+    const crashP = 0.011 * (0.5 + GP.dangerEff()) * playerRisk(rain);
     if (U.chance(crashP)) {
       const info = playerCrash('practice', -0.08);
       w.runsLeft = 0;
@@ -152,7 +217,7 @@
       if (r >= 1 - misread) { const wrongDir = d === 0 ? U.pick([1, -1]) : -d; return { k: s.name, t: wrongDir > 0 ? s.low : s.high, c: 'hint' }; }
       if (r < acc) {
         if (d === 0) return { k: s.name, t: 'Feels right.', c: 'ok' };
-        return { k: s.name, t: (d > 0 ? s.low : s.high) + (Math.abs(d) >= 2 ? ' Badly.' : ''), c: 'hint' };
+        return { k: s.name, t: (d > 0 ? s.low : s.high) + (Math.abs(d) >= 3 ? ' Badly.' : Math.abs(d) === 1 ? ' Only a touch.' : ''), c: 'hint' };
       }
       return { k: s.name, t: 'Hard to say. Can\'t put my finger on it.', c: 'vague' };
     });
@@ -273,6 +338,12 @@
     const c = r.cars[id];
     if (c.out) return;
     c.out = true; c.why = why; c.outStage = r.stage;
+    // how he went out, for the classification: a breakdown, or a crash and what it did to him
+    const d = GP.drv(id), m = / retires: (.*?)\.?$/.exec(why);
+    if (m) c.dnf = { k: 'mech', note: m[1] };
+    else if (d && d.status === 'dead') c.dnf = { k: 'crash', fate: 'dead' };
+    else if (id === 'P' && r.pCrash && r.pCrash.sev === 'fatal') c.dnf = { k: 'crash', fate: 'dead' };
+    else c.dnf = { k: 'crash', fate: d && d.injured > 0 ? 'hurt' : 'ok', inj: d ? d.injured || 0 : 0 };
     r.log.unshift({ lap: lapNo(r, 0.5), text: why, kind: kind || '' });
   }
 
@@ -591,7 +662,7 @@
     const scored = new Set();
     const rows = r.order.map((id, i) => {
       const d = GP.drv(id), c = r.cars[id];
-      const row = { id, name: d.name, teamId: d.teamId || c.teamId, out: c.out, why: c.why, grid: c.grid, pts: 0 };
+      const row = { id, name: d.name, teamId: d.teamId || c.teamId, out: c.out, why: c.why, dnf: c.dnf || null, grid: c.grid, pts: 0 };
       if (!c.out) {
         row.pos = i + 1;
         const gap = c.T - leaderT;
@@ -615,7 +686,7 @@
     S.drivers.forEach((d) => { if (d.injured > 0 && !r.cars[d.id]) d.injured--; });
     const res = { rows, fl: r.fl.id, notes: [], playerIn: r.playerIn, trackId: t.id, rain: r.rain };
     S.season.results.push({ trackId: t.id, winner: alive[0] || null, podium: alive.slice(0, 3), rain: !!r.rain, fl: r.fl.id,
-      rows: rows.map((x) => ({ id: x.id, teamId: x.teamId, pos: x.pos || null, out: !!x.out, why: x.out ? x.why : '', gap: x.gap || null, grid: x.grid, pts: x.pts })) });
+      rows: rows.map((x) => ({ id: x.id, teamId: x.teamId, pos: x.pos || null, out: !!x.out, why: x.out ? x.why : '', dnf: x.out ? x.dnf || null : null, gap: x.gap || null, grid: x.grid, pts: x.pts })) });
     // the player's own log for the career page
     const mine = (S.season.mine = S.season.mine || []);
     if (r.playerIn) {

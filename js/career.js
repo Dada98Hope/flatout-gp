@@ -46,7 +46,7 @@
     const teams = [...S.teams].sort((a, b) => b.prestige - a.prestige);
     for (const t of teams) {
       let ds = GP.teamDrivers(t.id);
-      const seats = t.honor || t.holdSeat ? 1 : 2;
+      const seats = Math.max(1, GP.carsOf(t) - (t.honor || t.holdSeat ? 1 : 0));
       while (ds.length < seats) {
         const free = S.drivers.filter((d) => d.status === 'active' && !d.teamId && !d.isPlayer && !(d.injured > 0));
         let pick = null, best = -1;
@@ -73,11 +73,11 @@
     const S = GP.S;
     const before = {};
     S.drivers.forEach((d) => { before[d.id] = d.teamId; });
-    const active = S.drivers.filter((d) => d.status === 'active' && !d.isPlayer);
+    const active = S.drivers.filter((d) => d.status === 'active' && !d.isPlayer && !d.owner);
     const open = {};
     S.teams.forEach((t) => {
       const kept = GP.teamDrivers(t.id).filter((d) => d.isPlayer || d.contract > 0).length;
-      open[t.id] = Math.max(0, 2 - kept);
+      open[t.id] = Math.max(0, GP.carsOf(t) - kept);
     });
     const locked = (d) => d.lockYear === S.year;
     const pool = active.filter((d) => (!d.teamId || d.contract <= 0) && !locked(d));
@@ -186,7 +186,7 @@
         career: { starts: 0, wins: 0, podiums: 0, poles: 0, points: 0, fl: 0, dnfs: 0, crashes: 0, titles: [], seasons: [] },
         contract: null, arche: arche.name,
       },
-      news: [], relLog: [], modal: null, wk: null, off: null, notebook: {}, history: [], sf: {},
+      news: [], relLog: [], modal: null, wk: null, off: null, notebook: {}, set8: true, history: [], sf: {},
       season: { year: 1960, calendar: GP.TRACKS.slice(0, 10).map((t) => t.id), results: [], done: false },
       pendingFuneral: null,
     };
@@ -236,16 +236,18 @@
       if (isCur && cur.years > 0) continue; // handled as "stay"
       const block = GP.contractBlock ? GP.contractBlock(t) : null;
       if (block) { closed.push({ teamId: t.id, why: block }); continue; }
+      const own = GP.ownerOf(t);
+      if (own && GP.carsOf(t) === 1) { closed.push({ teamId: t.id, why: `${own.name} owns the team and drives its only car himself.` }); continue; }
       let interest = p.rep * 1.0 + p.stats.pace * 0.5 - t.prestige * 0.9 + t.rel * 0.35 + (t.nat === p.nat ? 5 : 0) + (GP.contractBonus ? GP.contractBonus(t) : 0) + U.r(-12, 12);
       if (isCur) interest += t.rel > -30 ? 14 : -20;
       if (interest <= 0) {
         // a team short of money will sell you a seat anyway
         const pd = GP.payDriveOffer && !isCur ? GP.payDriveOffer(t) : null;
-        if (pd) { const ais = GP.teamDrivers(t.id).filter((d) => !d.isPlayer).sort((a, b) => (b.contract > 0) - (a.contract > 0) || b.skill - a.skill); offers.push({ ...pd, mate: ais[0] ? ais[0].id : null }); }
+        if (pd && !(GP.ownerOf(t) && GP.carsOf(t) === 1)) { const ais = GP.teamDrivers(t.id).filter((d) => !d.isPlayer).sort((a, b) => (b.contract > 0) - (a.contract > 0) || b.skill - a.skill); offers.push({ ...pd, mate: GP.carsOf(t) === 1 ? null : ais[0] ? ais[0].id : null }); }
         continue;
       }
       const bestAi = Math.max(0, ...GP.teamDrivers(t.id).filter((d) => !d.isPlayer).map((d) => d.skill));
-      const role = interest > 28 && p.stats.pace >= bestAi - 4 ? '1' : '2';
+      const role = GP.carsOf(t) === 1 || (interest > 28 && p.stats.pace >= bestAi - 4) ? '1' : '2';
       let salary = 400 + t.prestige * 25 + p.rep * 70;
       if (role === '1') salary *= 1.5;
       if (t.rel >= 60) salary *= 1.2;
@@ -253,18 +255,18 @@
       // who will be in the other car: the best driver under contract, or for a No.2 seat the team keeps its best man
       const ais = GP.teamDrivers(t.id).filter((d) => !d.isPlayer).sort((a, b) => (b.contract > 0) - (a.contract > 0) || b.skill - a.skill);
       const keep = ais[0] || null;
-      const mate = keep && (keep.contract > 0 || role === '2') ? keep.id : null;
+      const mate = GP.carsOf(t) === 1 ? null : keep && (keep.contract > 0 || role === '2' || keep.owner) ? keep.id : null;
       offers.push({ teamId: t.id, role, salary, years: t.rel >= 60 ? U.ri(2, 3) : U.ri(1, 3), renew: isCur, keen: t.rel >= 60, mate });
     }
     if (cur && cur.years > 0 && me.teamId === cur.teamId) {
       const ais = GP.teamDrivers(cur.teamId).filter((d) => !d.isPlayer).sort((a, b) => (b.contract > 0) - (a.contract > 0) || b.skill - a.skill);
-      offers.unshift({ teamId: cur.teamId, role: cur.role, salary: cur.salary, years: cur.years, stay: true, mate: ais[0] && (ais[0].contract > 0 || cur.role === '2') ? ais[0].id : null });
+      offers.unshift({ teamId: cur.teamId, role: cur.role, salary: cur.salary, years: cur.years, stay: true, mate: GP.carsOf(GP.team(cur.teamId)) === 1 ? null : ais[0] && (ais[0].contract > 0 || cur.role === '2') ? ais[0].id : null });
     }
     if (S.off) S.off.closed = closed;
     if (!offers.some((x) => !x.payDrive)) {
-      const t = [...S.teams].filter((x) => !closed.some((k) => k.teamId === x.id) && !offers.some((k) => k.teamId === x.id)).sort((a, b) => a.prestige - b.prestige)[0] || [...S.teams].sort((a, b) => a.prestige - b.prestige)[0];
+      const t = [...S.teams].filter((x) => !closed.some((k) => k.teamId === x.id) && !offers.some((k) => k.teamId === x.id) && !(GP.ownerOf(x) && GP.carsOf(x) === 1)).sort((a, b) => a.prestige - b.prestige)[0] || [...S.teams].sort((a, b) => a.prestige - b.prestige)[0];
       const ais = GP.teamDrivers(t.id).filter((d) => !d.isPlayer).sort((a, b) => (b.contract > 0) - (a.contract > 0) || b.skill - a.skill);
-      offers.push({ teamId: t.id, role: '2', salary: 600, years: 1, pittance: true, mate: ais[0] ? ais[0].id : null });
+      offers.push({ teamId: t.id, role: GP.carsOf(t) === 1 ? '1' : '2', salary: 600, years: 1, pittance: true, mate: GP.carsOf(t) === 1 ? null : ais[0] ? ais[0].id : null });
     }
     return offers.sort((a, b) => (b.stay ? 1 : 0) - (a.stay ? 1 : 0) || (a.payDrive ? 1 : 0) - (b.payDrive ? 1 : 0) || GP.team(b.teamId).prestige - GP.team(a.teamId).prestige);
   };
@@ -289,8 +291,8 @@
       if (promised.contract <= 0) { promised.contract = U.ri(1, 2); GP.news(`${GP.team(o.teamId).name} re-sign ${promised.name} to partner ${p.name}.`); }
       promised.lockYear = S.year;
     }
-    const others = GP.teamDrivers(o.teamId).filter((d) => !d.isPlayer).sort((a, b) => (a === promised) - (b === promised) || (a.contract > 0) - (b.contract > 0) || a.skill - b.skill);
-    if (old !== o.teamId && others.length >= 2) {
+    const others = GP.teamDrivers(o.teamId).filter((d) => !d.isPlayer).sort((a, b) => (a.owner ? 1 : 0) - (b.owner ? 1 : 0) || (a === promised) - (b === promised) || (a.contract > 0) - (b.contract > 0) || a.skill - b.skill);
+    if (old !== o.teamId && others.length >= GP.carsOf(GP.team(o.teamId)) && !others[0].owner) {
       const out = others[0];
       out.teamId = null; out.contract = 0;
       GP.adj('drv', out.id, -15, 'you took his seat');
@@ -333,13 +335,14 @@
     const tr = GP.track(S.season.calendar[S.round]);
     const team = GP.myTeam();
     const shift = team ? team.shift : [0, 0, 0, 0];
-    const opt = tr.opt.map((v, i) => U.clamp(v + shift[i], 1, 5));
+    const cond = GP.rollConditions();
+    const opt = GP.applyConditions(GP.optFor(tr, shift), cond);
     const rainR = U.chance(tr.rain);
     const forecast = U.chance(0.75) ? rainR : !rainR;
     S.wk = {
-      trackId: tr.id, rainQ: U.chance(tr.rain), rainR, forecast, opt,
+      trackId: tr.id, rainQ: U.chance(tr.rain), rainR, forecast, opt, cond,
       event: null, eventDone: false, eventResult: null, flags: {},
-      setup: (S.notebook[tr.id] || [3, 3, 3, 3]).slice(), runsLeft: 4, plog: [], practiceBest: null, setupQ: null,
+      setup: (S.notebook[tr.id] || [4, 4, 4, 4]).slice(), runsLeft: 4, plog: [], practiceBest: null, setupQ: null,
       quali: null, grid: null, race: null, result: null,
     };
     S.relLog = [];
@@ -368,7 +371,7 @@
   GP.freeAgentOffer = function () {
     const S = GP.S, p = S.player;
     if (S.modal) return;
-    const cands = S.teams.filter((t) => !(GP.contractBlock && GP.contractBlock(t)) && !t.honor && !t.holdSeat && (GP.teamDrivers(t.id).length < 2 || (t.prestige < 62 && U.chance(0.12))));
+    const cands = S.teams.filter((t) => !(GP.contractBlock && GP.contractBlock(t)) && !t.honor && !t.holdSeat && !(GP.ownerOf(t) && GP.carsOf(t) === 1) && (GP.teamDrivers(t.id).length < GP.carsOf(t) || (t.prestige < 62 && U.chance(0.12))));
     for (const t of U.shuffle(cands)) {
       const interest = p.rep + p.stats.pace * 0.5 - t.prestige * 0.7 + t.rel * 0.4 + 15 + U.r(-10, 10);
       if (interest > 0) {
@@ -387,8 +390,8 @@
     }
     const me = GP.me();
     GP.team(m.teamId).holdSeat = false;
-    const others = GP.teamDrivers(m.teamId).filter((d) => !d.isPlayer).sort((a, b) => a.skill - b.skill);
-    if (others.length >= 2) { others[0].teamId = null; GP.adj('drv', others[0].id, -12, 'you took his seat'); }
+    const others = GP.teamDrivers(m.teamId).filter((d) => !d.isPlayer && !d.owner).sort((a, b) => a.skill - b.skill);
+    if (others.length && GP.teamDrivers(m.teamId).filter((d) => !d.isPlayer).length >= GP.carsOf(GP.team(m.teamId))) { others[0].teamId = null; GP.adj('drv', others[0].id, -12, 'you took his seat'); }
     me.teamId = m.teamId;
     S.player.contract = { teamId: m.teamId, role: '2', salary: m.salary, years: 0 };
     GP.setRoles(m.teamId);
@@ -396,7 +399,7 @@
     GP.fillSeats();
     const tr = GP.track(S.wk.trackId);
     const team = GP.myTeam();
-    S.wk.opt = tr.opt.map((v, i) => U.clamp(v + team.shift[i], 1, 5));
+    S.wk.opt = GP.applyConditions(GP.optFor(tr, team.shift), S.wk.cond);
   };
 
   GP.nextRound = function () {
@@ -463,7 +466,7 @@
     S.vacancies = [];
     for (const v of list) {
       const t = GP.team(v.teamId), dead = GP.drv(v.deadId);
-      if (!t || !dead || GP.teamDrivers(t.id).length >= 2) continue;
+      if (!t || !dead || GP.teamDrivers(t.id).length >= GP.carsOf(t)) continue;
       const c = { t: t.id, d: dead.id, ...GP.seatCandidates() };
       if (me.teamId === t.id) { t.holdSeat = true; S.mateSeat = c; continue; }
       // a driver without a seat may get the phone call before the team looks elsewhere
@@ -571,7 +574,9 @@
     const lines = [];
     GP.STATS.forEach((st) => {
       const k = st.key;
-      let g = Math.min(4, Math.floor(p.xp[k] / 2.5));
+      // weak ratings learn faster and may grow further in one winter
+      const c = GP.catchUp ? GP.catchUp(p.stats[k]) : 0;
+      let g = Math.min(4 + Math.round(c * 3), Math.floor((p.xp[k] * (1 + c * 0.5)) / 2.5));
       g = f >= 0 ? Math.round(g * f) : -U.ri(0, 2) + (k === 'feedback' || k === 'craft' ? 1 : 0);
       if (a >= 35 && (k === 'pace' || k === 'nerve')) g -= U.ri(1, 2);
       if (g) {
@@ -593,13 +598,14 @@
       d.age++;
       const g = d.age <= 25 ? U.ri(0, 4) : d.age <= 30 ? U.ri(-1, 2) : d.age <= 33 ? U.ri(-2, 1) : U.ri(-4, 0);
       d.skill = U.clamp(d.skill + g, 40, 96);
-      const retire = (d.age >= 37 && U.chance(0.35)) || d.age >= 42 || (d.skill < 55 && d.age > 30 && U.chance(0.5));
+      // an owner-driver answers to nobody: he stops only when age catches up with him
+      const retire = d.owner ? (d.age >= 40 && U.chance(0.35)) || d.age >= 45 : (d.age >= 37 && U.chance(0.35)) || d.age >= 42 || (d.skill < 55 && d.age > 30 && U.chance(0.5));
       if (retire) {
         d.status = 'retired'; d.teamId = null;
         if (d.titles || d.wins > 3) report.push({ text: `${d.name} retires at ${d.age}${d.titles ? ', a ' + d.titles + '-time champion' : ''}.` });
         return;
       }
-      if (d.teamId) d.contract = Math.max(0, d.contract - 1); // 0 = out of contract, goes to the market
+      if (d.teamId && !d.owner) d.contract = Math.max(0, d.contract - 1); // 0 = out of contract, goes to the market
       d.injured = 0;
     });
     const n = U.ri(3, 5);

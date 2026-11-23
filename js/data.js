@@ -29,15 +29,15 @@ GP.NAMES = {
 
 /* Fictional works teams of the era. power/handling/relia are the car; prestige drives who they want. */
 GP.TEAMS = [
-  { id: 'ardente', name: 'Scuderia Ardente', short: 'ARD', nat: 'ITA', color: '#c8322b', ink: '#fff2e0', boss: 'Comm. Aurelio Bassani', chief: 'Beppe Ricci', power: 92, handling: 79, relia: 60, prestige: 92, tech: 80 },
-  { id: 'lancer', name: 'Lancer Engineering', short: 'LAN', nat: 'GBR', color: '#1f6b45', ink: '#f4d23a', boss: 'Graham Lacey', chief: 'Dick Bellamy', power: 81, handling: 92, relia: 54, prestige: 85, tech: 88 },
-  { id: 'rowntree', name: 'Rowntree Racing Org.', short: 'RRO', nat: 'GBR', color: '#33503f', ink: '#e9e3cf', boss: 'Sir Reginald Thorne', chief: 'Wally Hames', power: 86, handling: 82, relia: 68, prestige: 80, tech: 70 },
-  { id: 'hartmann', name: 'Hartmann Rennsport', short: 'HRT', nat: 'GER', color: '#b9bec2', ink: '#1a1d20', boss: 'Dr. Klaus Hartmann', chief: 'Fritz Oberle', power: 86, handling: 77, relia: 76, prestige: 78, tech: 76 },
-  { id: 'kestrel', name: 'Kestrel Cars', short: 'KES', nat: 'AUS', color: '#2b6f8a', ink: '#f2eee2', boss: 'Jack Kestrel', chief: 'Ron Tauranac-Hill', power: 80, handling: 85, relia: 71, prestige: 74, tech: 74 },
-  { id: 'meridien', name: '\u00c9quipe M\u00e9ridien', short: 'MER', nat: 'FRA', color: '#2f5aa8', ink: '#ffffff', boss: 'Henri Duval', chief: 'Marcel Pitot', power: 78, handling: 80, relia: 63, prestige: 60, tech: 62 },
-  { id: 'ashcombe', name: 'Ashcombe Motors', short: 'ASH', nat: 'GBR', color: '#25355e', ink: '#d9c48b', boss: 'Rob Ashcombe', chief: 'Alf Purdy', power: 74, handling: 76, relia: 66, prestige: 52, tech: 56 },
-  { id: 'volta', name: 'Scuderia Volta', short: 'VOL', nat: 'ITA', color: '#d8a72a', ink: '#1d1a12', boss: 'Count Vittorio Saletti', chief: 'Aldo Pezzi', power: 77, handling: 70, relia: 56, prestige: 45, tech: 50 },
-  { id: 'stanton', name: 'Stanton-Cole', short: 'STC', nat: 'USA', color: '#e6e3d8', ink: '#1f3f8f', boss: 'Lance Stanton', chief: 'Buck Harlan', power: 72, handling: 72, relia: 60, prestige: 40, tech: 58 },
+  { id: 'ardente', kind: 'works', name: 'Scuderia Ardente', short: 'ARD', nat: 'ITA', color: '#c8322b', ink: '#fff2e0', boss: 'Comm. Aurelio Bassani', chief: 'Beppe Ricci', power: 92, handling: 79, relia: 60, prestige: 92, tech: 80 },
+  { id: 'lancer', kind: 'backer', name: 'Lancer Engineering', short: 'LAN', nat: 'GBR', color: '#1f6b45', ink: '#f4d23a', boss: 'Graham Lacey', chief: 'Dick Bellamy', power: 81, handling: 92, relia: 54, prestige: 85, tech: 88 },
+  { id: 'rowntree', kind: 'privateer', name: 'Rowntree Racing Org.', short: 'RRO', nat: 'GBR', color: '#33503f', ink: '#e9e3cf', boss: 'Sir Reginald Thorne', chief: 'Wally Hames', power: 86, handling: 82, relia: 68, prestige: 80, tech: 70 },
+  { id: 'hartmann', kind: 'works', name: 'Hartmann Rennsport', short: 'HRT', nat: 'GER', color: '#b9bec2', ink: '#1a1d20', boss: 'Dr. Klaus Hartmann', chief: 'Fritz Oberle', power: 86, handling: 77, relia: 76, prestige: 78, tech: 76 },
+  { id: 'kestrel', kind: 'backer', name: 'Kestrel Cars', short: 'KES', nat: 'AUS', color: '#2b6f8a', ink: '#f2eee2', boss: 'Jack Kestrel', chief: 'Ron Tauranac-Hill', power: 80, handling: 85, relia: 71, prestige: 74, tech: 74 },
+  { id: 'meridien', kind: 'works', name: '\u00c9quipe M\u00e9ridien', short: 'MER', nat: 'FRA', color: '#2f5aa8', ink: '#ffffff', boss: 'Henri Duval', chief: 'Marcel Pitot', power: 78, handling: 80, relia: 63, prestige: 60, tech: 62 },
+  { id: 'ashcombe', kind: 'backer', name: 'Ashcombe Motors', short: 'ASH', nat: 'GBR', color: '#25355e', ink: '#d9c48b', boss: 'Rob Ashcombe', chief: 'Alf Purdy', power: 74, handling: 76, relia: 66, prestige: 52, tech: 56 },
+  { id: 'volta', kind: 'privateer', name: 'Scuderia Volta', short: 'VOL', nat: 'ITA', color: '#d8a72a', ink: '#1d1a12', boss: 'Count Vittorio Saletti', chief: 'Aldo Pezzi', power: 77, handling: 70, relia: 56, prestige: 45, tech: 50 },
+  { id: 'stanton', kind: 'privateer', name: 'Stanton-Cole', short: 'STC', nat: 'USA', color: '#e6e3d8', ink: '#1f3f8f', boss: 'Lance Stanton', chief: 'Buck Harlan', power: 72, handling: 72, relia: 60, prestige: 40, tech: 58 },
 ];
 
 /* opt = ideal setup [gear, suspension, tyre pressure, brake bias] on a 1..5 scale */

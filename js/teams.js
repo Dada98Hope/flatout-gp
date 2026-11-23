@@ -60,6 +60,27 @@
     backer: { w: 0.28, tech: [55, 72], car: [-7, 0], relia: [56, 70], prestige: [40, 52], fin: [58, 78], say: (t) => `A wealthy backer, ${t.boss}, launches ${t.name}. Money is no object, for now.` },
     works: { w: 0.12, tech: [70, 86], car: [-3, 4], relia: [62, 78], prestige: [55, 66], fin: [75, 92], say: (t) => `A motor manufacturer enters the championship: ${t.name} is a full works team.` },
   };
+  /* what kind of outfit a team is, shown on the team page and the offers */
+  GP.TEAM_KIND = {
+    works: { label: 'Works team', desc: 'A motor manufacturer: its own factory, its own engines.' },
+    backer: { label: 'Customer team', desc: 'Builds its own chassis around bought-in engines, paid for by a backer.' },
+    privateer: { label: 'Privateer', desc: 'A small outfit running bought cars on a tight budget.' },
+  };
+  GP.teamKind = (t) => GP.TEAM_KIND[t.kind] || GP.TEAM_KIND.backer;
+  /* a team moves up or down the ladder: privateer, customer team, works team */
+  GP.setKind = function (t, kind, year) {
+    if (t.kind === kind) return;
+    (t.steps = t.steps || []).push({ y: year + 1, from: t.kind, to: kind });
+    t.kind = kind;
+  };
+  /* a privateer boss who races his own car */
+  GP.makeOwnerDriver = function (t) {
+    const d = GP.genDriver({ nat: t.nat, skill: U.ri(52, 72) });
+    ['wins', 'podiums', 'starts', 'titles', 'poles', 'fl', 'cpts', 'cups', 'qsum', 'qn'].forEach((k) => { d[k] = d[k] || 0; });
+    d.name = t.boss; d.age = U.ri(27, 38); d.owner = t.id; d.teamId = t.id; d.contract = 99; d.role = '1';
+    GP.S.drivers.push(d); t.ownerId = d.id;
+    return d;
+  };
   GP.newTeam = function (year) {
     const S = GP.S;
     const nat = U.wpick(Object.keys(GP.NAMES), (k) => GP.NAT_WEIGHT[k] || 1);
@@ -77,7 +98,11 @@
       cash: U.ri(K.fin[0], K.fin[1]), kind: kindK, since: year + 1, cups: 0, wins: 0, poorYears: 0,
       rel: S.player && S.player.nat === nat ? 12 : 0, mech: 0, pts: 0, shift: [0, 0, 0, 0], upgrades: [],
     };
+    // privateers often run a single car, and now and then the owner drives it himself
+    t.cars = kindK === 'privateer' ? (U.chance(0.55) ? 1 : 2) : kindK === 'backer' && U.chance(0.15) ? 1 : 2;
     t.entry = K.say(t);
+    if (t.cars === 1 && kindK === 'privateer' && U.chance(0.6)) { GP.makeOwnerDriver(t); t.entry = `${t.boss} enters a single ${t.name} for himself. Owner, mechanic and driver.`; }
+    else if (t.cars === 1) t.entry += ' Just the one car to begin with.';
     return t;
   };
 
@@ -103,11 +128,19 @@
       let p = f < 10 ? 0.5 : f < 20 ? 0.24 : f < 35 ? 0.07 : f < 50 ? 0.02 : 0.003;
       if (i < 3) p *= 0.3;
       if (t.kind === 'works' && t.poorYears >= 3 && U.chance(0.22)) { fold.push({ t, why: 'withdrew' }); return; }
+      const od = t.ownerId ? GP.drv(t.ownerId) : null;
+      if (od && od.status === 'dead' && !t.ownerGone) { t.ownerGone = true; if (U.chance(0.6)) { fold.push({ t, why: 'owner', who: od.name }); return; } }
       if (U.chance(p)) fold.push({ t, why: 'bankrupt' });
     });
     // never drop below the minimum by more than the newcomers can cover, and keep at least one rescue chance
-    fold.forEach(({ t, why }) => {
+    fold.forEach(({ t, why, who }) => {
       if (S.teams.length <= MIN - 2) return;
+      if (why === 'withdrew' && U.chance(0.4)) {
+        GP.setKind(t, 'backer', year);
+        t.cash = U.ri(40, 60); t.tech = Math.max(45, t.tech - 8); t.poorYears = 0; t.boss = U.pick(['', 'Sir ', 'Count ']) + person(t.nat);
+        out.push({ kind: 'sold', text: `The factory pulls out, but ${t.name} carry on: ${t.boss} buys the team and runs it on bought-in engines.` });
+        return;
+      }
       if (why === 'bankrupt' && U.chance(0.3)) {
         // a buyer steps in: new owner, new name, money restored
         const old = t.name, nm = teamName(t.nat);
@@ -124,7 +157,47 @@
       t.until = year; t.why = why;
       S.defunct.push(t);
       S.drivers.forEach((d) => { if (d.teamId === t.id && !d.isPlayer) { d.teamId = null; d.contract = 0; } });
-      out.push({ kind: why, team: t, text: why === 'withdrew' ? `${t.name} pull out of Grand Prix racing. The factory has lost interest after ${t.poorYears} seasons without results.` : `${t.name} have gone bankrupt. The cars are sold off and the team will not race in ${year + 1}.` });
+      out.push({ kind: why, team: t, text: why === 'owner' ? `${t.name} close their doors. Without ${who}, there is no team.` : why === 'withdrew' ? `${t.name} pull out of Grand Prix racing. The factory has lost interest after ${t.poorYears} seasons without results.` : `${t.name} have gone bankrupt. The cars are sold off and the team will not race in ${year + 1}.` });
+    });
+    // 2a. climbing and sliding: results and money move a team between privateer, customer and works
+    ranked.forEach((t, i) => {
+      if (!S.teams.includes(t) || t.since > year) return;
+      const top = i < N / 2;
+      if (t.kind === 'privateer' && t.cash >= 55 && top && U.chance(0.25)) {
+        GP.setKind(t, 'backer', year);
+        t.tech = Math.min(90, t.tech + U.ri(5, 9)); t.prestige = Math.min(80, t.prestige + U.ri(3, 6)); t.cash = Math.min(100, t.cash + 10);
+        const od = GP.ownerOf(t);
+        let text = `${t.name} find a backer. From ${year + 1} they build their own chassis around bought-in engines.`;
+        if (od && U.chance(0.5)) { od.status = 'retired'; od.teamId = null; od.contract = 0; text += ` ${od.name} hangs up his helmet to run the team from the pit wall.`; }
+        if (GP.carsOf(t) === 1) { t.cars = 2; text += ' There will be two cars.'; }
+        out.push({ kind: 'up', text });
+      } else if (t.kind === 'backer' && i < 2 && t.cash >= 75 && U.chance(0.07)) {
+        GP.setKind(t, 'works', year);
+        t.tech = Math.min(92, t.tech + U.ri(6, 10)); t.cash = Math.min(100, t.cash + 15); t.prestige = Math.min(90, t.prestige + 5); t.cars = 2;
+        out.push({ kind: 'up', text: `A motor manufacturer buys into ${t.name}. From ${year + 1} it is a full works team, with engines of its own.` });
+      } else if (t.kind === 'works' && (t.poorYears || 0) >= 2 && t.cash < 50 && U.chance(0.18)) {
+        GP.setKind(t, 'backer', year);
+        t.tech = Math.max(45, t.tech - U.ri(4, 8)); t.cash = Math.max(20, t.cash - 10);
+        out.push({ kind: 'down', text: `The factory behind ${t.name} cuts its budget. From ${year + 1} they race on as a customer team, buying engines like everyone else.` });
+      } else if (t.kind === 'backer' && t.cash < 35 && (t.poorYears || 0) >= 2 && U.chance(0.3)) {
+        GP.setKind(t, 'privateer', year);
+        t.tech = Math.max(40, t.tech - U.ri(3, 6)); t.prestige = Math.max(25, t.prestige - 3);
+        out.push({ kind: 'down', text: `${t.name} lose their backer. From ${year + 1} they will race bought cars as privateers.` });
+      }
+    });
+    // 2b. one car or two: poor privateers cut back, rich ones expand
+    S.teams.forEach((t) => {
+      if (t.since > year) return;
+      const mine = S.drivers.some((d) => d.isPlayer && d.teamId === t.id);
+      if (GP.carsOf(t) === 2 && t.kind !== 'works' && t.cash < 25 && !mine && U.chance(t.kind === 'privateer' ? 0.3 : 0.12)) {
+        t.cars = 1;
+        const ds = S.drivers.filter((d) => d.teamId === t.id && d.status === 'active' && !d.owner).sort((a, b) => a.skill - b.skill);
+        while (ds.length && S.drivers.filter((d) => d.teamId === t.id && d.status === 'active').length > 1) { const d = ds.shift(); d.teamId = null; d.contract = 0; }
+        out.push({ kind: 'shrink', text: `${t.name} can only afford one car next season.` });
+      } else if (GP.carsOf(t) === 1 && t.cash > 60 && U.chance(0.3)) {
+        t.cars = 2;
+        out.push({ kind: 'grow', text: `${t.name} will run a second car next season.` });
+      }
     });
     // 3. newcomers: forced below the minimum, occasional otherwise
     let n = 0;
@@ -133,7 +206,7 @@
     if (U.chance(chance)) { addNew(); if (S.teams.length < MAX && U.chance(0.12)) addNew(); }
     function addNew() { const t = GP.newTeam(year); S.teams.push(t); n++; out.push({ kind: 'new', team: t, text: t.entry }); }
     // 4. the news
-    if (!o.quiet) out.forEach((x) => GP.news(x.text, x.kind === 'bankrupt' || x.kind === 'withdrew' ? 'bad' : x.kind === 'new' ? 'gold' : ''));
+    if (!o.quiet) out.forEach((x) => GP.news(x.text, x.kind === 'bankrupt' || x.kind === 'withdrew' || x.kind === 'owner' ? 'bad' : x.kind === 'new' || x.kind === 'up' ? 'gold' : x.kind === 'down' ? 'bad' : ''));
     return out;
   };
 
@@ -151,6 +224,15 @@
       t.hist = [];
       [...(S.history || [])].reverse().forEach((h) => { const k = (h.teams || []).findIndex((x) => names.includes(x.n)); if (k >= 0) t.hist.push({ y: h.year, pos: k + 1, pts: h.teams[k].p, name: h.teams[k].n, drivers: [], partial: true }); });
     });
+    // older saves: setups were on a 1-5 scale; the notebook and any weekend in progress move to 1-8
+    if (!S.set8) {
+      const up = (v) => Math.round(1 + (v - 1) * 1.75);
+      Object.keys(S.notebook || {}).forEach((k) => { S.notebook[k] = S.notebook[k].map(up); });
+      if (S.wk && S.wk.opt) { S.wk.opt = S.wk.opt.map(up); if (S.wk.setup) S.wk.setup = S.wk.setup.map(up); (S.wk.plog || []).forEach((l) => { l.setup = l.setup.map(up); }); S.wk.reads = {}; }
+      S.set8 = true;
+    }
+    // older saves: every team gets a status (the original nine have fixed ones)
+    S.teams.concat(S.defunct).forEach((t) => { if (!t.kind) { const b = GP.TEAMS.find((x) => x.id === t.id); t.kind = b && b.kind ? b.kind : 'backer'; } });
     S.teams.forEach((t) => { if (t.cash == null) t.cash = finStart(t); if (t.cups == null) t.cups = 0; if (t.wins == null) t.wins = 0; if (t.since == null) t.since = 1930; });
   };
 
@@ -181,7 +263,7 @@
     const myTeamId = p.contract && p.contract.teamId;
     // unpaid salary is paid if the team survives, lost if it does not
     const changes = GP.teamWinter(S.year, ranked.filter((t) => S.teams.includes(t)));
-    changes.forEach((x) => S.off.report.push({ big: x.kind !== 'rescue', text: x.text }));
+    changes.forEach((x) => S.off.report.push({ big: !['rescue', 'shrink', 'grow'].includes(x.kind), text: x.text }));
     if (p.unpaid) {
       const t = GP.team(p.unpaid.teamId);
       if (t && S.teams.includes(t)) { p.money += p.unpaid.amt; S.off.report.push({ text: `${t.name} finally pay the ${U.money(p.unpaid.amt)} they owed you.` }); }

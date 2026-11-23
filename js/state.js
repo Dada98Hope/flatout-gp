@@ -50,6 +50,9 @@ GP.track = (id) => GP.TRACKS.find((t) => t.id === id);
 GP.me = () => GP.S.drivers.find((d) => d.isPlayer);
 GP.myTeam = () => { const m = GP.me(); return m && m.teamId ? GP.team(m.teamId) : null; };
 GP.teamDrivers = (tid) => GP.S.drivers.filter((d) => d.teamId === tid && d.status === 'active');
+/* how many cars a team runs (most run two; some privateers only one), and its owner-driver if he is racing */
+GP.carsOf = (t) => (t && t.cars) || 2;
+GP.ownerOf = (t) => { const d = t && t.ownerId ? GP.drv(t.ownerId) : null; return d && d.status === 'active' && d.teamId === t.id ? d : null; };
 GP.mate = () => { const m = GP.me(); if (!m.teamId) return null; return GP.teamDrivers(m.teamId).find((d) => !d.isPlayer) || null; };
 GP.activeDrivers = () => GP.S.drivers.filter((d) => d.status === 'active');
 GP.racers = () => GP.S.drivers.filter((d) => d.status === 'active' && d.teamId && !(d.injured > 0));

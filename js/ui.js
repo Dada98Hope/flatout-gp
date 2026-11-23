@@ -312,7 +312,8 @@ const effLine = (kind, x) => { const e = GP.relEffects ? GP.relEffects(kind, x) 
           <div class="kv"><span>History</span><span><button class="linkname" data-act="teamp" data-arg="${t.id}">${t.cups || 0} cups \u00b7 ${t.wins || 0} wins \u00b7 see the team</button></span></div>
           <div class="kv"><span>Finances</span><span>${GP.finWord ? `<span class="${GP.finClass(t)}">${GP.finWord(t)}</span>` : ''}${t.since && t.since > 1930 ? ` <span class="muted small">\u00b7 since ${t.since}</span>` : ''}</span></div>
           <div class="kv"><span>Boss</span><span>${E(t.boss)} ${relBar(t.rel)}</span></div>
-          <div class="kv"><span>Team-mate</span><span><span>${pm ? `<button class="linkname" data-act="profile" data-arg="${pm.id}">${E(pm.name)}</button> <em class="muted">(${pm.skill})</em><br><small class="muted">${of.role === '2' ? 'Stays as No.1, guaranteed' : pm.contract > 0 ? 'Under contract, stays' : 'Re-signs with the team'}</small>` : `Decided in the driver market${loose.length ? `<br><small class="muted">${E(loose.map((d) => d.name).join(' and '))} ${loose.length > 1 ? 'are' : 'is'} out of contract</small>` : ''}`}</span></span></div>
+          <div class="kv"><span>Outfit</span><span>${E(GP.teamKind(t).label)} \u00b7 ${GP.carsOf(t) === 1 ? 'one car' : 'two cars'}</span></div>
+          ${GP.carsOf(t) === 1 ? `<div class="kv"><span>Team-mate</span><span class="muted">None. A one-car team: you are the only driver.</span></div>` : ''}<div class="kv" ${GP.carsOf(t) === 1 ? 'hidden' : ''}><span>Team-mate</span><span><span>${pm ? `<button class="linkname" data-act="profile" data-arg="${pm.id}">${E(pm.name)}</button> <em class="muted">(${pm.skill})</em><br><small class="muted">${of.role === '2' ? 'Stays as No.1, guaranteed' : pm.contract > 0 ? 'Under contract, stays' : 'Re-signs with the team'}</small>` : `Decided in the driver market${loose.length ? `<br><small class="muted">${E(loose.map((d) => d.name).join(' and '))} ${loose.length > 1 ? 'are' : 'is'} out of contract</small>` : ''}`}</span></span></div>
           <div class="kv"><span>Prestige</span><span>${meter(t.prestige)}</span></div>
           ${mates.filter((m) => m.rel >= 25 || m.rel <= -25).map((m) => `<p class="small ${m.rel >= 25 ? 'good' : 'bad'}">${m.rel >= 60 ? '\u2605 ' + E(m.name) + ' is a close friend: he will share notes and give you a tow.' : m.rel >= 25 ? E(m.name) + ' is friendly with you.' : m.rel <= -60 ? E(m.name) + ' hates you: he will hide his notes and lobby the boss against you.' : E(m.name) + ' is cold towards you.'}</p>`).join('')}
           ${of.keen ? `<p class="small good">${E(t.boss)} rates you highly: better money and a longer deal.</p>` : ''}
@@ -388,6 +389,7 @@ const effLine = (kind, x) => { const e = GP.relEffects ? GP.relEffects(kind, x) 
         <div><small>Race day</small><b>${forecast}</b></div>
       </div>
       <p class="blurb">${E(tr.blurb)}${S.notebook[tr.id] ? ' <b style="font-style:normal">Last visit\'s setup is in your notebook.</b>' : ''}</p>
+      ${w.cond ? `<p class="small"><span class="label">Conditions</span> ${E(w.cond.text)}</p>` : ''}
       ${(w.notices || []).map(clipping).join('')}
       ${body}
       ${dk}
@@ -403,12 +405,12 @@ const effLine = (kind, x) => { const e = GP.relEffects ? GP.relEffects(kind, x) 
         <div class="fb-h"><b>Run ${last.n}</b><span class="mono">${U.time(last.lap)}</span><span class="mono ${last.lap - w.pref < 0 ? 'good' : 'muted'}">${last.lap - w.pref < 0 ? 'Fastest' : '+' + (last.lap - w.pref).toFixed(1) + 's'}</span></div>
         <p class="muted small">Setup ${last.setup.join(' \u00b7 ')}. ${E(GP.myTeam().chief)} writes down what you say:</p>
         <ul class="fb-lines">${last.lines.map((l) => `<li class="${l.c}"><b>${l.k}</b>${E(l.t)}</li>`).join('')}</ul>
-      </div>` : `<div class="clip"><p>Set the car up, then send it out. You'll come back with a lap time and an opinion on each part of the setup. Your Feedback rating and your crew relationship decide how often that opinion is right.</p></div>`}
+      </div>` : `<div class="clip"><p>Set the car up, then send it out. You'll come back with a lap time and an opinion on each part of the setup. Your Feedback rating and your crew relationship decide how often that opinion is right. Every run is a risk: a crash in practice wrecks the car and the setup with it.</p>${w.cond ? `<p class="small" style="margin-top:6px"><span class="label">Conditions</span> ${E(w.cond.text)}</p>` : ''}</div>`}
       <div class="card setup">
         ${ch('Setup sheet', `Runs left ${pips(w.runsLeft, Math.max(4, w.runsLeft))}`)}
         ${GP.SETUP.map((s, i) => `<div class="setup-row">
           <div class="setup-lab"><b>${s.name}</b><span>${s.lo} \u2194 ${s.hi}</span></div>
-          <div class="seg">${[1, 2, 3, 4, 5].map((v) => `<button class="${w.setup[i] === v ? 'on' : ''}" data-act="setv" data-arg="${i}:${v}" aria-label="${s.name} ${v}" aria-pressed="${w.setup[i] === v}">${v}</button>`).join('')}</div>
+          <div class="seg set8">${Array.from({ length: GP.SET_N }, (_, k) => k + 1).map((v) => `<button class="${w.setup[i] === v ? 'on' : ''}" data-act="setv" data-arg="${i}:${v}" aria-label="${s.name} ${v}" aria-pressed="${w.setup[i] === v}">${v}</button>`).join('')}</div>
         </div>`).join('')}
       </div>
       ${w.plog.length > 1 ? `<div class="board">${ch('Earlier runs')}<table class="tt"><tbody>${w.plog.slice(1).map((l) => `<tr><td class="nm">Run ${l.n}</td><td class="mono">${l.setup.join('\u00b7')}</td><td class="mono r">${U.time(l.lap)}</td></tr>`).join('')}</tbody></table></div>` : ''}
@@ -486,7 +488,7 @@ const effLine = (kind, x) => { const e = GP.relEffects ? GP.relEffects(kind, x) 
     const full = GP.ui.fullTower;
     const show = (i) => full || (pi < 0 || r.cars.P.out ? i < 10 : i < 3 || Math.abs(i - pi) <= 2);
     let hidden = false;
-    const tower = r.order.map((id, i) => { if (!show(i)) { if (hidden) return ''; hidden = true; return '<tr class="skip"><td colspan="5">\u00b7 \u00b7 \u00b7</td></tr>'; } hidden = false; const d = GP.drv(id), c = r.cars[id], t = GP.team(c.teamId || d.teamId) || null; const gap = c.out ? 'out' : i === 0 ? 'Leader' : '+' + (c.T - lt).toFixed(1); const delta = c.grid - (i + 1); return `<tr class="${d.isPlayer ? 'me' : ''} ${c.out ? 'out' : ''}"><td class="pos">${c.out ? '\u2014' : i + 1}</td><td>${chip(t)}</td><td class="nm">${E(d.name)}</td><td class="dl ${delta > 0 ? 'up' : delta < 0 ? 'dn' : ''}">${c.out ? '' : delta > 0 ? '\u25b2' + delta : delta < 0 ? '\u25bc' + -delta : ''}</td><td class="mono r">${gap}</td></tr>`; }).join('');
+    const tower = r.order.map((id, i) => { if (!show(i)) { if (hidden) return ''; hidden = true; return '<tr class="skip"><td colspan="5">\u00b7 \u00b7 \u00b7</td></tr>'; } hidden = false; const d = GP.drv(id), c = r.cars[id], t = GP.team(c.teamId || d.teamId) || null; const gap = c.out ? (c.dnf ? GP.dnfTag(c.dnf) : 'out') : i === 0 ? 'Leader' : '+' + (c.T - lt).toFixed(1); const delta = c.grid - (i + 1); return `<tr class="${d.isPlayer ? 'me' : ''} ${c.out ? 'out' : ''}"><td class="pos">${c.out ? '\u2014' : i + 1}</td><td>${chip(t)}</td><td class="nm"><span class="n">${E(d.name)}</span></td><td class="dl ${delta > 0 ? 'up' : delta < 0 ? 'dn' : ''}">${c.out ? '' : delta > 0 ? '\u25b2' + delta : delta < 0 ? '\u25bc' + -delta : ''}</td><td class="mono r">${gap}</td></tr>`; }).join('');
     const myPos = alive.indexOf('P') + 1;
     return `<section class="race">
       <div class="board">
@@ -521,8 +523,18 @@ const effLine = (kind, x) => { const e = GP.relEffects ? GP.relEffects(kind, x) 
     </section>`;
   }
 
+  /* why a car is out: a breakdown, or a crash and what it did to the driver.
+     Older saves have no detail, so it is read from the race report line. */
+  const dnfOf = (x) => {
+    if (x.dnf) return x.dnf;
+    const w = x.why || '';
+    if (/ retires: /.test(w)) return { k: 'mech', note: w.split(' retires: ')[1].replace(/\.$/, '') };
+    return { k: 'crash', fate: /did not survive/.test(w) ? 'dead' : /hospital|broken bones/.test(w) ? 'hurt' : /unhurt|climbs out|walk back/.test(w) ? 'ok' : '' };
+  };
+  GP.dnfTag = (f) => (f.k === 'mech' ? `<span class="dnf-t ret">Retired</span>` : f.fate === 'dead' ? `<span class="dnf-t dead">Killed</span>` : f.fate === 'hurt' ? `<span class="dnf-t hurt">Injured</span>` : `<span class="dnf-t crash">Crashed</span>`);
+  const dnfLine = (f) => (f.k === 'mech' ? ((n) => n.charAt(0).toUpperCase() + n.slice(1))(f.note || 'mechanical failure') : f.fate === 'dead' ? 'Crashed. He did not survive.' : f.fate === 'hurt' ? `Crashed, in hospital${f.inj ? ` \u00b7 out ${f.inj} race${f.inj > 1 ? 's' : ''}` : ''}` : f.fate === 'ok' ? 'Crashed, unhurt' : 'Crashed');
   function resultTable(rows, flId, nameOf) {
-    return `<table class="tt"><tbody>${rows.map((x) => { const t = x.teamId ? GP.team(x.teamId) : null; return `<tr class="${x.id === 'P' ? 'me' : ''} ${x.out ? 'out' : ''}"><td class="pos">${x.out ? '\u2014' : x.pos}</td><td>${chip(t)}</td><td class="nm">${E(nameOf(x))}${x.id === flId ? ' <span class="fl">FL</span>' : ''}</td><td class="mono r">${x.out ? 'DNF' : x.gap || 'Winner'}</td><td class="mono r pts">${x.pts || ''}</td></tr>`; }).join('')}</tbody></table>`;
+    return `<table class="tt"><tbody>${rows.map((x) => { const t = x.teamId ? GP.team(x.teamId) : null; const f = x.out ? dnfOf(x) : null; return `<tr class="${x.id === 'P' ? 'me' : ''} ${x.out ? 'out' : ''}"><td class="pos">${x.out ? '\u2014' : x.pos}</td><td>${chip(t)}</td><td class="nm"><span class="n">${E(nameOf(x))}</span>${x.id === flId ? ' <span class="fl">FL</span>' : ''}${f ? `<small class="dnf-l ${f.k === 'mech' ? '' : f.fate || ''}">${E(dnfLine(f))}</small>` : ''}</td><td class="mono r">${f ? GP.dnfTag(f) : x.gap || 'Winner'}</td><td class="mono r pts">${x.pts || ''}</td></tr>`; }).join('')}</tbody></table>`;
   }
 
   /* ---------- standings ---------- */
@@ -584,7 +596,7 @@ const effLine = (kind, x) => { const e = GP.relEffects ? GP.relEffects(kind, x) 
     const S = GP.S, v = GP.ui.tableView;
     let body;
     if (v === 'teams') {
-      body = `<div class="card tight">${ch("Constructors' cup", 'Best car scores')}<table class="tt"><tbody>${GP.teamStandings().map((t, i) => `<tr class="${GP.myTeam() === t ? 'me' : ''} tap" data-act="teamp" data-arg="${t.id}"><td class="pos">${i + 1}</td><td>${chip(t)}</td><td class="nm">${E(t.name)}${t.honor ? ' <span class="cross">\u2020</span>' : ''}<small class="${GP.finClass ? GP.finClass(t) : ''}">${GP.finWord ? GP.finWord(t) : ''}</small></td><td class="r faint small">${cbLabel(t)}</td><td class="mono r pts">${t.pts}</td></tr>`).join('')}</tbody></table></div>`;
+      body = `<div class="card tight">${ch("Constructors' cup", 'Best car scores')}<table class="tt"><tbody>${GP.teamStandings().map((t, i) => `<tr class="${GP.myTeam() === t ? 'me' : ''} tap" data-act="teamp" data-arg="${t.id}"><td class="pos">${i + 1}</td><td>${chip(t)}</td><td class="nm">${E(t.name)}${t.honor ? ' <span class="cross">\u2020</span>' : ''}<small><span class="faint">${E(GP.teamKind(t).label)}${GP.carsOf(t) === 1 ? ' \u00b7 one car' : ''} \u00b7 </span><span class="${GP.finClass ? GP.finClass(t) : ''}">${GP.finWord ? GP.finWord(t) : ''}</span></small></td><td class="r faint small">${cbLabel(t)}</td><td class="mono r pts">${t.pts}</td></tr>`).join('')}</tbody></table></div>`;
     } else if (v === 'cars') {
       const cars = [...S.teams].sort((a, b) => GP.carRank(a.id) - GP.carRank(b.id));
       body = `<div class="board">${ch('Car ratings', 'Out of 100')}<table class="tt"><thead><tr><th></th><th></th><th></th><th class="r">Eng</th><th class="r">Chs</th><th class="r">Rel</th><th class="r">+</th></tr></thead><tbody>${cars.map((t, i) => { const ups = (t.upgrades || []).filter((u) => u.y === S.year); const g = ups.reduce((s2, u) => s2 + u.gain, 0); return `<tr class="${GP.myTeam() === t ? 'me' : ''} tap" data-act="teamp" data-arg="${t.id}"><td class="pos">${i + 1}</td><td>${chip(t)}</td><td class="nm">${E(t.short)}</td><td class="mono r">${t.power}</td><td class="mono r">${t.handling}</td><td class="mono r">${t.relia}</td><td class="mono r">${g ? '+' + g : '\u2014'}</td></tr>`; }).join('')}</tbody></table></div>
@@ -614,7 +626,7 @@ const effLine = (kind, x) => { const e = GP.relEffects ? GP.relEffects(kind, x) 
       <p class="intro">Enemies race you dirty and block your signings. Friends race clean and put in a word. Bosses decide your seat.</p>
       <div class="meets ${can ? '' : 'none'}"><b>${S.socialLeft || 0}</b><span>${can ? `meeting${S.socialLeft === 1 ? '' : 's'} left ${S.screen === 'offseason' ? 'this winter' : 'this weekend'}. Tap anyone to look them up or meet them.` : S.screen === 'race' ? 'No meetings during the race.' : `No meetings left ${S.screen === 'offseason' ? 'this winter' : 'this weekend'}.`}</span></div>
       ${GP.myTeam() ? `<div class="card">${ch('Your crew')}<ul class="people">${wrap(`crew:${GP.myTeam().id}`, `<div class="pp-top">${chip(GP.myTeam())}<b>${E(GP.myTeam().chief)}'s mechanics</b></div><div class="pp-rel">${relBar(GP.myTeam().mech)}</div>${effLine('crew', GP.myTeam())}`)}</ul></div>` : ''}
-      <div class="card">${ch('Team bosses')}<ul class="people">${[...S.teams].sort((a, b) => b.prestige - a.prestige).map((t) => wrap(`boss:${t.id}`, `<div class="pp-top">${chip(t)}<b>${E(t.boss)}</b><span class="muted">${E(t.name)}</span></div><div class="pp-rel">${relBar(t.rel)}${GP.finWord ? `<span class="tag-s ${GP.finClass(t) === 'bad' ? 'hot' : GP.finClass(t)}">${GP.finWord(t)}</span>` : ''}${t.honor ? `<span class="tag-s">one car, in memory of ${E(t.honor)}</span>` : ''}</div>${effLine('boss', t)}`)).join('')}</ul></div>
+      <div class="card">${ch('Team bosses')}<ul class="people">${[...S.teams].sort((a, b) => b.prestige - a.prestige).map((t) => wrap(`boss:${t.id}`, `<div class="pp-top">${chip(t)}<b>${E(t.boss)}</b><span class="muted">${E(t.name)}</span></div><div class="pp-rel">${relBar(t.rel)}${GP.finWord ? `<span class="tag-s ${GP.finClass(t) === 'bad' ? 'hot' : GP.finClass(t)}">${GP.finWord(t)}</span>` : ''}${t.honor ? `<span class="tag-s">one car, in memory of ${E(t.honor)}</span>` : ''}${GP.ownerOf(t) ? '<span class="tag-s">owner-driver</span>' : ''}</div>${effLine('boss', t)}`)).join('')}</ul></div>
       ${(() => { if (!GP.rrPairs) return ''; GP.rrSeed(); const p = GP.rrPairs(); if (!p.length) return ''; const row = (x) => `<li><span class="${x.v < 0 ? 'bad' : 'good'}">${x.v < 0 ? '\u2694' : '\u2665'}</span> <b>${E(x.a.name)}</b> <span class="muted">&amp;</span> <b>${E(x.b.name)}</b> <span class="muted small">${x.v <= -80 ? 'bitter enemies' : x.v < 0 ? 'feuding' : x.v >= 80 ? 'inseparable' : 'good friends'}</span></li>`; return `<div class="card">${ch('Feuds and friendships', 'Between the drivers')}<ul class="pairs">${p.filter((x) => x.v < 0).slice(0, 5).map(row).join('')}${p.filter((x) => x.v > 0).slice(-5).reverse().map(row).join('')}</ul><p class="muted small" style="margin-top:8px">Feuding drivers bang wheels when they race each other. Friends tow each other along. Upset a driver and his friends turn on you, but his enemies warm to you.</p></div>`; })()}
       <div class="card">${ch('Drivers', 'Rating')}<ul class="people">${drivers.map(drow).join('')}</ul></div>
       ${free.length ? `<div class="card">${ch('Without a seat')}<ul class="people">${free.map(drow).join('')}</ul></div>` : ''}
@@ -738,6 +750,7 @@ const effLine = (kind, x) => { const e = GP.relEffects ? GP.relEffects(kind, x) 
           ${ch('Driver ratings')}
           ${p.startStats ? `<p class="small muted" style="margin-bottom:4px">${p.mode === 'dice' ? 'Rolled' : 'Started'} at the small figure, now the big one.</p>` : ''}${GP.STATS.map((s) => `<div class="kv stat"><span>${s.name}</span><span>${p.startStats ? `<em class="start-v ${p.stats[s.key] > p.startStats[s.key] ? 'good' : p.stats[s.key] < p.startStats[s.key] ? 'bad' : ''}">${p.startStats[s.key]}</em>` : ''}${meter(p.stats[s.key])}<b class="num">${p.stats[s.key]}</b></span></div>`).join('')}
           <div class="kv stat"><span>Reputation</span><span>${meter(p.rep, 100, 'red')}<b class="num">${Math.round(p.rep)}</b></span></div>
+          ${GP.STATS.some((s) => p.stats[s.key] < 62) ? `<p class="small muted" style="margin-top:8px">Ratings under 62 learn faster, and can jump during the season as well as over the winter.</p>` : ''}
         </div>
         ${moneyCard()}
         <div class="card">
@@ -753,22 +766,23 @@ const effLine = (kind, x) => { const e = GP.relEffects ? GP.relEffects(kind, x) 
   }
 
   /* ---------- team profile ---------- */
-  const KIND = { works: 'Works team', backer: 'Privately backed', privateer: 'Privateer' };
   function teamView(t) {
     const S = GP.S, live = S.teams.includes(t), hist = t.hist || [];
     const best = hist.reduce((b, h) => (!b || h.pos < b ? h.pos : b), null);
     const ds = live ? GP.teamDrivers(t.id) : [];
     const status = live ? `Racing since ${t.since || 1930}` : `${t.since || 1930}\u2013${t.until} \u00b7 ${t.why === 'withdrew' ? 'withdrew from racing' : 'went bankrupt'}`;
     const dname = (d) => (d.isPlayer ? `<b>${E(S.player.name)}</b>` : `<button class="linkname" data-act="profile" data-arg="${d.id}">${E(d.name)}</button>`);
-    return `<p class="eyebrow">${E(GP.NATIONS[t.nat] || t.nat)}${t.kind ? ' \u00b7 ' + KIND[t.kind] : ''}</p>
+    return `<p class="eyebrow">${E(GP.NATIONS[t.nat] || t.nat)}${' \u00b7 ' + GP.teamKind(t).label}</p>
       <h3>${E(t.name)}</h3>
       <p>${chip(t)} <span class="small">${status}</span></p>
+      <p class="small muted">${E(GP.teamKind(t).desc)} ${live ? (GP.carsOf(t) === 1 ? 'Runs a single car.' : 'Runs two cars.') : ''}${live && GP.ownerOf(t) ? ` The owner, ${E(t.boss)}, drives it himself.` : ''}</p>
+      ${t.steps && t.steps.length ? `<p class="small"><span class="label">The road so far</span> ${[{ y: t.since || 1930, to: t.steps[0].from }].concat(t.steps).map((x) => `${E((GP.TEAM_KIND[x.to] || GP.TEAM_KIND.backer).label)} <span class="muted">${x.y}</span>`).join(' \u2192 ')}</p>` : ''}
       ${t.formerly && t.formerly.length ? `<p class="small muted">Formerly ${E(t.formerly.map((f) => `${f.name} (to ${f.until})`).join(', '))}</p>` : ''}
       <div class="prof-top"><div><small>Cups</small><b>${t.cups || 0}</b></div><div><small>Wins</small><b>${t.wins || 0}</b></div><div><small>Seasons</small><b>${hist.length}</b></div><div><small>Best</small><b>${best ? U.ord(best) : '\u2014'}</b></div><div><small>Prestige</small><b class="mono">${t.prestige}</b></div><div><small>Money</small><b class="mono small ${GP.finClass(t)}">${live ? GP.finWord(t).split(' ').pop() : '\u2014'}</b></div></div>
       ${live ? `<div style="margin-top:12px">${carBars(t)}</div>
         <div class="kv" style="margin-top:6px"><span>Boss</span><span>${E(t.boss)} ${relBar(t.rel)}</span></div>
         <div class="kv"><span>Chief mechanic</span><span>${E(t.chief)}</span></div>
-        <div class="kv"><span>Drivers</span><span><span>${ds.map((d) => `${dname(d)}${d.role === '1' ? ' <em class="muted">(No.1)</em>' : ''}`).join('<br>') || '\u2014'}</span></span></div>` : ''}
+        <div class="kv"><span>Drivers</span><span><span>${ds.map((d) => `${dname(d)}${d.owner ? ' <em class="muted">(owner)</em>' : d.role === '1' && ds.length > 1 ? ' <em class="muted">(No.1)</em>' : ''}`).join('<br>') || '\u2014'}</span></span></div>` : ''}
       ${hist.length ? `<p class="label" style="margin-top:14px">Season by season</p><table class="tt prof-t"><tbody>${[...hist].reverse().map((h) => `<tr><td class="pos">${h.y}</td><td class="nm">${h.pos === 1 ? '<b class="good">Constructors\' champions</b>' : U.ord(h.pos)}<small>${h.name && h.name !== t.name ? 'as ' + E(h.name) + (h.drivers && h.drivers.length ? ' \u00b7 ' : '') : ''}${E((h.drivers || []).join(', '))}${h.w ? ` \u00b7 ${h.w} win${h.w > 1 ? 's' : ''}` : ''}</small></td><td class="mono r pts">${h.pts}</td></tr>`).join('')}</tbody></table>` : '<p class="muted small" style="margin-top:12px">No completed seasons yet.</p>'}
       ${btn('meetClose', 'Close', { cls: 'ghost small' })}`;
   }

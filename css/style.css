@@ -251,7 +251,15 @@ b, strong { font-weight: 600; }
 .tt .pts { font-family: var(--f-mono); font-weight: 700; color: var(--red); }
 .tt tr.me td { background: var(--me-bg); }
 .tt tr.out td { color: var(--ink-3); }
-.tt tr.out .nm { text-decoration: line-through; text-decoration-color: var(--red); }
+.tt tr.out .nm .n { text-decoration: line-through; text-decoration-color: var(--red); }
+.tt .nm small.dnf-l { font-size: 11.5px; margin-top: 1px; }
+.tt .nm small.dnf-l.hurt { color: var(--bad); }
+.tt .nm small.dnf-l.dead { color: var(--bad); font-style: italic; }
+.dnf-t { font-family: var(--f-ui); font-weight: 600; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; }
+.dnf-t.ret { color: var(--ink-3); }
+.dnf-t.crash { color: var(--amber); }
+.dnf-t.hurt { color: var(--bad); }
+.dnf-t.dead { color: #f3ede0; background: #000; border: 1px solid var(--red); padding: 2px 5px; }
 .tt tr.dead .nm { color: var(--ink-3); }
 .tt .dl { font-family: var(--f-mono); font-size: 11.5px; white-space: nowrap; }
 .tt .dl.up { color: var(--good); }
@@ -393,6 +401,7 @@ b, strong { font-weight: 600; }
 .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 0; border: 1.5px solid var(--line); border-radius: var(--r); overflow: hidden; }
 .seg button { appearance: none; border: 0; border-left: 1px solid var(--rule); background: var(--sheet); color: var(--ink-2); font-family: var(--f-mono); font-weight: 700; font-size: 16px; padding: 8px 0; cursor: pointer; min-height: 44px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; }
 .seg button:first-child { border-left: 0; }
+.seg.set8 button { font-size: 14px; min-height: 42px; padding: 6px 0; }
 .seg button.on { background: var(--solid); color: var(--solid-ink); }
 .seg.wide button { font-family: var(--f-ui); font-weight: 500; font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; padding: 6px 2px; }
 .seg.wide button small { font-family: var(--f-body); font-weight: 400; font-size: 11px; letter-spacing: 0; text-transform: none; opacity: 0.85; }

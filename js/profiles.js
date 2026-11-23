@@ -22,6 +22,8 @@
   GP.migrateDev = function () {
     mig.apply(this, arguments);
     const S = GP.S;
+    // pit stops were removed: a race saved at the pit window just carries on
+    if (S && S.modal && S.modal.kind === 'pit') S.modal = null;
     if (!S || S.histBackfilled) return;
     S.histBackfilled = true;
     [...(S.history || [])].reverse().forEach((h) => {

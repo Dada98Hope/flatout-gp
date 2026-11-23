@@ -28,7 +28,7 @@
     const free = () => S.drivers.filter((d) => d.status === 'active' && !d.isPlayer && !d.teamId);
     const seat = () => {
       [...teams].sort((a, b) => (prestige[b.id] ?? b.prestige) - (prestige[a.id] ?? a.prestige)).forEach((t) => {
-        while (S.drivers.filter((d) => d.teamId === t.id && d.status === 'active').length < 2) {
+        while (S.drivers.filter((d) => d.teamId === t.id && d.status === 'active').length < GP.carsOf(t)) {
           const pool = free();
           let pick = null, best = -1;
           pool.forEach((d) => { const sc = d.skill + U.r(0, 8) + (d.nat === t.nat ? 3 : 0); if (sc > best) { best = sc; pick = d; } });
@@ -140,8 +140,8 @@
       S.drivers.filter((d) => d.status === 'active' && !d.isPlayer).forEach((d) => {
         d.age++;
         d.skill = U.clamp(d.skill + (d.age <= 25 ? U.ri(0, 4) : d.age <= 30 ? U.ri(-1, 2) : d.age <= 33 ? U.ri(-2, 1) : U.ri(-4, 0)), 40, 96);
-        if ((d.age >= 37 && U.chance(0.35)) || d.age >= 42 || (d.skill < 55 && d.age > 30 && U.chance(0.5))) { d.status = 'retired'; d.teamId = null; return; }
-        if (d.teamId) { d.contract--; if (d.contract <= 0 && (d.skill < 68 || U.chance(0.35))) d.teamId = null; }
+        if (d.owner ? (d.age >= 40 && U.chance(0.35)) || d.age >= 45 : (d.age >= 37 && U.chance(0.35)) || d.age >= 42 || (d.skill < 55 && d.age > 30 && U.chance(0.5))) { d.status = 'retired'; d.teamId = null; return; }
+        if (d.teamId && !d.owner) { d.contract--; if (d.contract <= 0 && (d.skill < 68 || U.chance(0.35))) d.teamId = null; }
       });
       for (let i = 0, n = U.ri(3, 5); i < n; i++) S.drivers.push(stat0(GP.genDriver({ rookie: true })));
       seat();
@@ -149,7 +149,7 @@
     });
 
     // hand over to 1960: the best 21 active drivers keep the game's usual spread of talent
-    const act = S.drivers.filter((d) => d.status === 'active' && !d.isPlayer).sort((a, b) => b.skill - a.skill);
+    const act = S.drivers.filter((d) => d.status === 'active' && !d.isPlayer && !d.owner).sort((a, b) => b.skill - a.skill);
     act.forEach((d, i) => {
       if (i < TARGET.length) { d.skill = TARGET[i] + U.ri(-2, 2); d.injured = 0; }
       else { d.status = 'retired'; d.teamId = null; d.contract = 0; }
