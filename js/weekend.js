@@ -535,23 +535,32 @@
     let text = '';
     let duelRes = { mode: m.mode, rival: rv.id, ok };
     if (o.crash && U.chance(o.crash)) {
+      // contact: sometimes only one car is out, often both. Whoever walks away, he blames you.
       const roll = Math.random();
-      const meOut = roll < 0.55 || roll >= 0.8;
-      const himOut = roll >= 0.55;
+      const meOut = roll < 0.4 || roll >= 0.65;
+      const himOut = roll >= 0.4;
+      const dirtyMove = ['chop', 'outside', 'brake', 'late'].includes(k);
+      let hisFate = '';
       if (himOut) {
-        const res = aiCrash(rv, corner);
+        const res = aiCrash(rv, corner, dirtyMove ? 0.05 : 0);
         retire(r, rv.id, `${rv.name} and ${p.name} touch at ${corner}! ` + res.text, res.kind);
         delete r.tent[rv.id];
-        if (rv.status === 'active') GP.adj('drv', rv.id, -20, 'you put him off');
-        GP.adj('rep', 0, -2, 'collision');
+        hisFate = res.fatal ? ' He did not survive.' : rv.injured > 0 ? ' He is taken to hospital.' : '';
+        GP.adj('rep', 0, res.fatal ? -6 : -2, res.fatal ? 'a fatal collision' : 'collision');
       }
+      if (rv.status === 'active') GP.adj('drv', rv.id, -(dirtyMove ? U.ri(14, 22) : U.ri(7, 12)), himOut ? 'you put him off' : 'a collision he blames on you');
       if (meOut) {
         r.pCrash = playerCrash('race', 0.05);
-        r.pCrash.text = `Wheels interlock with ${rv.name} at ${corner}. ` + r.pCrash.text;
-        retire(r, 'P', `${p.name} is out after contact with ${rv.name}!`, 'bad');
+        r.pCrash.text = `Wheels interlock with ${rv.name} at ${corner}. ` + (himOut ? `Both cars are out.${hisFate} ` : `He gets away with it. `) + r.pCrash.text;
+        retire(r, 'P', himOut ? `${p.name} and ${rv.name} collide at ${corner}! Both are out.` : `${p.name} is out after contact with ${rv.name}!`, 'bad');
         delete r.tent.P;
       }
-      text = himOut && meOut ? 'Contact! Both cars are out.' : himOut ? `Contact! ${rv.name} spins off; you continue.` : 'Contact! You are out.';
+      const sur = rv.name.split(' ').pop();
+      if (rv.status === 'dead') after.push(`-${sur} was killed`);
+      else if (rv.injured > 0 && himOut) after.push(`-${sur} is injured: out for ${rv.injured} race${rv.injured > 1 ? 's' : ''}`);
+      if (rv.status === 'active') after.push(`-${sur} blames you for it`);
+      if (himOut) after.push('-Reputation: a collision on your record');
+      text = himOut && meOut ? `Contact with ${rv.name}! Both cars are out.${hisFate}` : himOut ? `Contact! ${rv.name} goes off; you continue.${hisFate}` : `Contact with ${rv.name}! You are out; he drives on.`;
       duelRes = null;
     } else {
       const span = (a) => (a ? U.r(a[0], a[1]) : 0);
@@ -793,7 +802,7 @@
     if (r.playerIn) {
       const row = rows.find((x) => x.id === 'P');
       const mateRow = rows.find((x) => x.id !== 'P' && x.teamId && x.teamId === row.teamId);
-      mine.push({ trackId: t.id, teamId: row.teamId, grid: row.grid, pos: row.pos || null, out: !!row.out, why: row.out ? row.why : '', pts: row.pts, fl: r.fl.id === 'P', rain: !!r.rain,
+      mine.push({ trackId: t.id, teamId: row.teamId, grid: row.grid, pos: row.pos || null, out: !!row.out, why: row.out ? row.why : '', dnf: row.out ? row.dnf || null : null, pts: row.pts, fl: r.fl.id === 'P', rain: !!r.rain,
         mate: mateRow ? mateRow.id : null, matePos: mateRow ? mateRow.pos || null : null, mateOut: mateRow ? !!mateRow.out : false });
     } else {
       mine.push({ trackId: t.id, absent: true, why: me.injured > 0 ? 'Injured' : !me.teamId ? 'No drive' : w.withdrawn ? 'Withdrawn' : 'Did not start' });

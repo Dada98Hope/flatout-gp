@@ -235,4 +235,48 @@
     GP.teamDrivers(t.id).filter((d) => !d.isPlayer).forEach((d) => { const tr = GP.TIER(d.rel); b += tr === 'close' ? 10 : tr === 'friendly' ? 4 : tr === 'cold' ? -4 : tr === 'hostile' ? -8 : 0; });
     return b;
   };
+
+  /* ---------- earning No.1 on the road ----------
+     A No.2 who keeps beating the team leader forces the boss's hand. How he answers, and how
+     much he pays, depends on what he thinks of you. */
+  const NO1 = {
+    hostile: { p: 0, pay: 0, no: (t, m) => `${t.boss} knows you have the beating of ${m}. He still will not make you No.1. Not while he runs this team.` },
+    cold: { p: 0.15, pay: 0.1, no: (t, m) => `${t.boss} admits you have been quicker than ${m}. "One swallow does not make a summer." You stay No.2.` },
+    neutral: { p: 0.35, pay: 0.25, no: (t, m) => `${t.boss} has noticed you beating ${m}. "Keep it up and we will talk." You stay No.2 for now.` },
+    friendly: { p: 0.55, pay: 0.35, no: (t, m) => `${t.boss} wants to promote you, but ${m}'s sponsors object. Give it a few more races.` },
+    close: { p: 0.75, pay: 0.5, no: (t, m) => `${t.boss} takes you aside. "You are the faster man, and I know it. But ${m} brought the sponsor. Give me until the end of the season." You stay No.2.` },
+  };
+  const finNo1 = GP.finishRace;
+  GP.finishRace = function () {
+    const S = GP.S, w = S.wk, already = w && w.race && w.race.done;
+    finNo1.apply(this, arguments);
+    const res = w && w.result, c = S.player.contract, t = GP.myTeam(), mate = GP.mate();
+    if (already || !res || !res.playerIn || !c || !t || !mate || c.role !== '2' || mate.role !== '1') return;
+    const me = res.rows.find((x) => x.id === 'P'), mr = res.rows.find((x) => x.id === mate.id);
+    if (!me || !mr) return;
+    // a head-to-head counts when at least one of you saw the flag
+    if (me.out && mr.out) return;
+    const sf = S.sf;
+    if (!sf.h2hNo1 || sf.h2hNo1.mate !== mate.id) sf.h2hNo1 = { mate: mate.id, list: [], cool: 0 };
+    const h = sf.h2hNo1;
+    h.list.push(!me.out && (mr.out || me.pos < mr.pos) ? 1 : 0);
+    if (h.list.length > 5) h.list.shift();
+    if (h.cool > 0) { h.cool--; return; }
+    const beat = h.list.reduce((a, b) => a + b, 0);
+    if (h.list.length < 4 || beat < 4 || GP.me().pts < mate.pts) return;
+    const tier = GP.TIER(t.rel), rule = NO1[tier], sur = mate.name.split(' ').pop();
+    if (U.chance(rule.p)) {
+      const old = c.salary;
+      c.salary = Math.round((old * (1 + rule.pay)) / 250) * 250;
+      c.role = '1'; GP.setRoles(t.id);
+      GP.adj('drv', mate.id, -12, 'demoted for you');
+      GP.adj('rep', 0, 2, 'promoted to No.1');
+      res.notes.push(`${beat} times in the last ${h.list.length} races you finished ahead of ${mate.name}. ${t.boss} makes you the team's No.1 driver${c.salary > old ? `, and your salary rises to ${U.money(c.salary)} a year` : ''}. ${sur} takes it badly.`);
+      GP.news(`${t.name} promote ${S.player.name} to No.1 driver ahead of ${mate.name}.`, 'gold');
+      sf.h2hNo1 = null;
+    } else {
+      res.notes.push(rule.no(t, mate.name));
+      h.cool = 2;
+    }
+  };
 })();

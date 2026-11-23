@@ -146,7 +146,7 @@
   document.addEventListener('click', (e) => {
     const el = e.target.closest('[data-act]');
     if (!el || el.disabled) return;
-    const fn = A[el.dataset.act];
+    const fn = A[el.dataset.act] || (GP.extraActions || {})[el.dataset.act];
     if (!fn) return;
     fn(el.dataset.arg, el);
     GP.render();

@@ -516,7 +516,7 @@
       pos, pts: me.pts, wins: raced.filter((r) => r.pos === 1).length, podiums: raced.filter((r) => r.pos && r.pos <= 3).length,
       poles: raced.filter((r) => r.grid === 1).length, starts: raced.length, dnfs: raced.filter((r) => r.out).length,
       best: raced.reduce((b, r) => (r.pos && (!b || r.pos < b) ? r.pos : b), null),
-      carRank: mainTeam ? GP.carRank(mainTeam.id) : null, h2h, mates,
+      carRank: mainTeam ? GP.carRank(mainTeam.id) : null, carOf: S.teams.length, car: mainTeam ? { e: mainTeam.power, c: mainTeam.handling, r: mainTeam.relia } : null, h2h, mates,
       champ: champ ? champ.name : '', races: mine,
     };
   };
