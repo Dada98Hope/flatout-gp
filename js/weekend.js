@@ -1,0 +1,684 @@
+/* Flat Out \u2014 the race weekend: free practice setup, qualifying, the Grand Prix */
+(function () {
+  const U = GP.U;
+  const START = {
+    cautious: { label: 'Cautious start', sub: 'Feed the clutch in gently', perf: -1.5, risk: 0.5, wear: 0.8 },
+    normal: { label: 'Clean start', sub: 'A good, honest launch', perf: 0, risk: 1, wear: 1 },
+    aggr: { label: 'Dump the clutch', sub: 'Elbows out into turn one', perf: 3.5, risk: 2.6, wear: 1.3 },
+  };
+  GP.START = START;
+
+  const wk = () => GP.S.wk;
+  const tr = () => GP.track(GP.S.wk.trackId);
+  GP.dangerEff = () => Math.max(0.15, tr().danger - (wk().flags.safer ? 0.14 : 0));
+
+  GP.setupQ = (setup, opt) => 1 - setup.reduce((s, v, i) => s + Math.abs(v - opt[i]), 0) / 16;
+
+  function aiQ(d) {
+    const w = wk();
+    w.aiQ = w.aiQ || {};
+    if (w.aiQ[d.id] == null) w.aiQ[d.id] = U.clamp(0.72 + (d.skill - 70) / 110 + Math.min(d.starts || 0, 40) / 1600 + U.gauss() * 0.05, 0.35, 1);
+    return w.aiQ[d.id];
+  }
+
+  GP.perfOf = function (d, rain, session) {
+    const t = GP.team(d.teamId), w = wk(), f = w.flags;
+    let car = GP.carScore(t, tr());
+    if (d.isPlayer && f.engine) car += 2.2;
+    let perf = car * 0.6 + d.skill * 0.4;
+    const q = d.isPlayer ? (w.setupQ != null ? w.setupQ : GP.setupQ(w.setup, w.opt)) : aiQ(d);
+    perf += (q - 0.6) * 15;
+    if (rain) perf += (d.wet - 60) / 6;
+    if (d.isPlayer) {
+      if (f.hangover && session !== 'race') perf -= 1.5;
+      if (f.tired) perf -= 0.8;
+      if (f.shaken) perf -= 1;
+      if (f.rested) perf += 0.5;
+      if (f.focused && session === 'quali') perf += 0.8;
+      if (f.softTyres && session === 'quali') perf += 1.4;
+    } else if (f.mateBoost && GP.mate() && GP.mate().id === d.id) perf += 1.5;
+    return perf;
+  };
+  GP.lapFromPerf = (perf, rain) => tr().base * (1 + (100 - perf) * 0.0012) * (rain ? 1.12 : 1);
+
+  /* Player-only modifiers on crash odds */
+  function playerRisk(rain) {
+    const st = GP.S.player.stats, f = wk().flags;
+    let m = 1.6 - st.cons / 100;
+    if (rain) m *= 2.2 * (1.4 - st.nerve / 100);
+    if (f.hangover) m *= 1.25;
+    if (f.tired) m *= 1.1;
+    if (f.rested) m *= 0.9;
+    return m;
+  }
+
+  /* Severity of a crash. Dangerous circuits kill. */
+  GP.crashOutcome = function (heavyBoost = 0) {
+    const dg = GP.dangerEff();
+    if (!U.chance(0.15 + dg * 0.25 + heavyBoost)) return { sev: 'minor' };
+    if (U.chance(0.05 + dg * 0.17)) return { sev: 'fatal' };
+    return { sev: 'heavy', injury: U.chance(0.7) ? U.ri(1, 4) : 0 };
+  };
+
+  GP.killAI = function (d, where) {
+    const S = GP.S;
+    d.status = 'dead';
+    const team = d.teamId ? GP.team(d.teamId) : null;
+    d.teamId = null;
+    S.pendingFuneral = d.id;
+    if (team) (S.vacancies = S.vacancies || []).push({ teamId: team.id, deadId: d.id });
+    GP.news(`${d.name} (${team ? team.name : ''}) was killed at ${where}, ${tr().name}. He was ${d.age}.`, 'black');
+    if (d.rel > 40) wk().flags.shaken = true;
+  };
+
+  function aiCrash(d, where, extra) {
+    const out = GP.crashOutcome(extra || 0);
+    const w = U.pick(GP.CRASH_VERBS) + ' ' + where;
+    if (out.sev === 'fatal') { GP.killAI(d, where); return { text: `${d.name} ${w}. He did not survive.`, kind: 'black', fatal: true }; }
+    if (out.sev === 'heavy') {
+      if (out.injury) { d.injured = out.injury; GP.news(`${d.name} injured at ${tr().name}; out for ${out.injury} race${out.injury > 1 ? 's' : ''}.`); }
+      return { text: `${d.name} ${w}. A heavy accident${out.injury ? '; he is taken to hospital' : ', but he climbs out'}.`, kind: 'bad' };
+    }
+    return { text: `${d.name} ${w}. Out, unhurt.`, kind: '' };
+  }
+
+  /* Player crash: returns modal-ready info and applies injury. Fatal is resolved by the modal. */
+  function playerCrash(session, heavyBoost) {
+    const S = GP.S, p = S.player;
+    const where = U.pick(tr().corners);
+    const out = GP.crashOutcome(heavyBoost || 0);
+    p.career.crashes++;
+    const verb = U.pick(GP.CRASH_VERBS);
+    const info = { kind: 'crash', session, sev: out.sev, where, text: '' };
+    if (out.sev === 'fatal') {
+      info.text = `You ${verb} ${where}. The car is torn apart against a tree.`;
+    } else if (out.sev === 'heavy') {
+      const inj = out.injury;
+      if (inj) {
+        GP.me().injured = inj;
+        const lost = U.ri(1, 4);
+        p.stats.pace = Math.max(20, p.stats.pace - (U.chance(0.4) ? lost : 0));
+        info.text = `You ${verb} ${where}. The car is destroyed and you are pulled from the wreck with broken bones. Doctors say ${inj} race${inj > 1 ? 's' : ''} out.`;
+        if (inj >= 3 && GP.myTeam() && U.chance(0.45)) {
+          const t = GP.myTeam();
+          info.text += ` Then a telegram from ${t.boss}: the team is replacing you.`;
+          GP.me().teamId = null; p.contract = null; GP.news(`${t.name} replace the injured ${p.name}.`);
+        }
+      } else {
+        info.text = `You ${verb} ${where}. A huge impact. You climb out shaking, but in one piece.`;
+      }
+      GP.adj('mech', GP.me().teamId, -6, 'a wrecked car');
+    } else {
+      info.text = `You ${verb} ${where}. The car is damaged; you walk back to the pits.`;
+      GP.adj('mech', GP.me().teamId, -3, 'crash damage');
+    }
+    return info;
+  }
+
+  /* ================= FREE PRACTICE ================= */
+  GP.practiceRun = function () {
+    const S = GP.S, w = wk(), p = S.player, me = GP.me();
+    if (w.runsLeft <= 0) return;
+    w.runsLeft--;
+    p.xp.feedback += 0.7;
+    const rain = w.rainQ;
+    const crashP = 0.005 * (0.5 + GP.dangerEff()) * playerRisk(rain);
+    if (U.chance(crashP)) {
+      const info = playerCrash('practice', -0.08);
+      w.runsLeft = 0;
+      w.practiceCrash = true;
+      S.modal = info;
+      if (info.sev === 'heavy' && GP.me().injured) w.withdrawn = true;
+      GP.save();
+      return;
+    }
+    const q = GP.setupQ(w.setup, w.opt);
+    const lap = GP.lapFromPerf(GP.perfOf(me, rain, 'practice'), rain) + U.gauss() * tr().base * 0.001 * (1.6 - p.stats.cons / 100) * (rain ? 1.5 : 1);
+    const team = GP.myTeam();
+    let acc = 0.3 + p.stats.feedback / 100 * 0.55 + team.mech / 100 * 0.15;
+    if (w.flags.noDebrief) acc -= 0.15;
+    if (w.flags.hangover) acc -= 0.1;
+    if (w.flags.notes) acc += 0.1;
+    if (w.flags.mateNotes) acc += w.flags.mateNotes * 0.08;
+    acc = U.clamp(acc, 0.2, 0.95);
+    w.reads = w.reads || {};
+    const lines = GP.SETUP.map((s, i) => {
+      const d = w.opt[i] - w.setup[i];
+      // the same setting gives the same read: your Feedback decides, not a fresh dice roll each run
+      const key = i + ':' + w.setup[i];
+      if (w.reads[key] == null) w.reads[key] = Math.random();
+      const r = w.reads[key];
+      const misread = Math.max(0, 0.5 - acc) * 0.8;
+      if (r >= 1 - misread) { const wrongDir = d === 0 ? U.pick([1, -1]) : -d; return { k: s.name, t: wrongDir > 0 ? s.low : s.high, c: 'hint' }; }
+      if (r < acc) {
+        if (d === 0) return { k: s.name, t: 'Feels right.', c: 'ok' };
+        return { k: s.name, t: (d > 0 ? s.low : s.high) + (Math.abs(d) >= 2 ? ' Badly.' : ''), c: 'hint' };
+      }
+      return { k: s.name, t: 'Hard to say. Can\'t put my finger on it.', c: 'vague' };
+    });
+    if (w.pref == null) {
+      w.pref = Math.min(...GP.racers().filter((d) => !d.isPlayer).map((d) => GP.lapFromPerf(GP.perfOf(d, rain, 'practice'), rain) + U.gauss() * tr().base * 0.001));
+    }
+    w.plog.unshift({ n: 4 - w.runsLeft, setup: w.setup.slice(), lap, lines });
+    w.practiceBest = Math.min(w.practiceBest || Infinity, lap);
+    GP.save();
+  };
+
+  GP.endPractice = function () {
+    const S = GP.S, w = wk();
+    w.setupQ = GP.setupQ(w.setup, w.opt);
+    if (w.practiceCrash) w.setupQ = Math.min(w.setupQ, 0.55); // rebuilt car, no time to dial it in
+    S.notebook[w.trackId] = w.setup.slice();
+    GP.initQuali();
+    S.screen = 'quali';
+    GP.save();
+  };
+
+  /* ================= QUALIFYING ================= */
+  GP.initQuali = function () {
+    const w = wk();
+    const q = { left: 3, best: null, laps: [], ai: {}, log: [], done: false };
+    const rain = w.rainQ;
+    GP.racers().filter((d) => !d.isPlayer).forEach((d) => {
+      let best = null;
+      for (let i = 0; i < 3; i++) {
+        const a = U.chance(d.aggr / 140) ? GP.APPROACH.push : GP.APPROACH.steady;
+        const crashP = 0.004 * (0.5 + GP.dangerEff()) * a.risk * (1.6 - d.cons / 100) * (rain ? 2 : 1);
+        if (U.chance(crashP)) {
+          const res = aiCrash(d, U.pick(tr().corners), -0.1);
+          q.log.push(res);
+          if (res.fatal || d.injured) best = null;
+          break;
+        }
+        const t = GP.lapFromPerf(GP.perfOf(d, rain, 'quali') + a.perf, rain) + U.gauss() * tr().base * 0.0022 * (1.5 - d.cons / 100) * (rain ? 1.6 : 1);
+        if (best == null || t < best) best = t;
+      }
+      if (d.status === 'active' && !(d.injured > 0)) q.ai[d.id] = best;
+    });
+    w.quali = q;
+  };
+
+  GP.qualiLap = function (key) {
+    const S = GP.S, w = wk(), q = w.quali, me = GP.me();
+    if (q.left <= 0 || q.done) return;
+    q.left--;
+    const A = GP.APPROACH[key];
+    const rain = w.rainQ;
+    if (key === 'ragged') S.player.xp.nerve += 0.6;
+    const crashP = 0.0065 * (0.5 + GP.dangerEff()) * A.risk * playerRisk(rain);
+    if (U.chance(crashP)) {
+      const info = playerCrash('qualifying', 0);
+      q.left = 0;
+      q.laps.unshift({ key, time: null });
+      S.modal = info;
+      if (info.sev !== 'minor' && (GP.me().injured || !GP.me().teamId)) w.withdrawn = true;
+      if (info.sev === 'heavy') q.noCar = true;
+      GP.save();
+      return;
+    }
+    const t = GP.lapFromPerf(GP.perfOf(me, rain, 'quali') + A.perf, rain) + U.gauss() * tr().base * 0.0022 * (1.5 - S.player.stats.cons / 100) * (rain ? 1.6 : 1);
+    q.laps.unshift({ key, time: t });
+    if (q.best == null || t < q.best) q.best = t;
+    GP.save();
+  };
+
+  GP.qualiOrder = function () {
+    const q = wk().quali;
+    const arr = Object.entries(q.ai).map(([id, t]) => ({ id, t }));
+    const me = GP.me();
+    if (GP.racers().includes(me) && !wk().withdrawn) arr.push({ id: 'P', t: q.best });
+    return arr.sort((a, b) => (a.t == null) - (b.t == null) || a.t - b.t);
+  };
+
+  GP.endQuali = function () {
+    const S = GP.S, w = wk();
+    const order = GP.qualiOrder().filter((x) => { const d = GP.drv(x.id); return d.status === 'active' && !(d.injured > 0); });
+    w.grid = order.map((x) => x.id);
+    w.quali.done = true;
+    if (w.grid[0] === 'P') { S.player.career.poles++; GP.adj('rep', 0, 2, 'pole position'); }
+    if (w.quali.noCar && w.grid.includes('P')) { w.grid = w.grid.filter((id) => id !== 'P'); w.grid.push('P'); }
+    S.screen = 'grid';
+    GP.save();
+  };
+
+  /* ================= THE RACE ================= */
+  GP.startRace = function (startKey, mixKey) {
+    const S = GP.S, w = wk();
+    const t = tr();
+    const r = {
+      stage: 0, stages: 8, lapsPer: t.laps / 8, cars: {}, order: w.grid.slice(), log: [],
+      mixture: mixKey || 'std', done: false, ordersDone: false, fl: { id: null, t: Infinity }, rain: w.rainR,
+      playerIn: w.grid.includes('P'),
+    };
+    w.grid.forEach((id, i) => { r.cars[id] = { T: i * 0.45, out: false, why: '', outStage: null, grid: i + 1, teamId: GP.drv(id).teamId }; });
+    w.race = r;
+    S.screen = 'race';
+    r.log.unshift({ lap: 0, text: `${t.gp}: ${w.grid.length} starters${r.rain ? ', and it is raining' : ''}. The flag drops!`, kind: 'gold' });
+    GP.raceStage(startKey, true);
+  };
+
+  const craftOf = (d) => (d.isPlayer ? GP.S.player.stats.craft : d.skill * 0.6 + d.aggr * 0.3 + 10);
+
+  function aiApproach(d) {
+    const x = Math.random() * 100;
+    if (d.aggr > 75 && x < 14) return GP.APPROACH.ragged;
+    if (x < d.aggr * 0.5) return GP.APPROACH.push;
+    if (x > 88) return GP.APPROACH.conserve;
+    return GP.APPROACH.steady;
+  }
+
+  function lapNo(r, extra = 0) { return Math.round(r.lapsPer * (r.stage + extra)); }
+
+  function retire(r, id, why, kind) {
+    const c = r.cars[id];
+    if (c.out) return;
+    c.out = true; c.why = why; c.outStage = r.stage;
+    r.log.unshift({ lap: lapNo(r, 0.5), text: why, kind: kind || '' });
+  }
+
+  /* A driver who hates you tries to put you in the hedge. Exposed for the relationships module. */
+  GP.rivalContact = function (rvId) {
+    const S = GP.S, r = wk().race, rv = GP.drv(rvId), corner = U.pick(tr().corners);
+    if (Math.random() < 0.6) {
+      r.pCrash = playerCrash('race', 0.05);
+      r.pCrash.text = `${rv.name} drives straight into you at ${corner}. It was no accident. ` + r.pCrash.text;
+      retire(r, 'P', `${S.player.name} is taken out by ${rv.name} at ${corner}!`, 'bad');
+      delete r.tent.P;
+    } else {
+      const res = aiCrash(rv, corner);
+      retire(r, rvId, `${rv.name} tries to push ${S.player.name} off at ${corner} and goes off himself! ` + res.text, res.kind);
+      delete r.tent[rvId];
+    }
+  };
+
+  GP.raceStage = function (key, isStart) {
+    const S = GP.S, w = wk(), r = w.race;
+    if (!r || r.done || S.modal) return;
+    const t = tr();
+    const dg = GP.dangerEff();
+    const running = r.order.filter((id) => !r.cars[id].out);
+    const tent = {};
+    r.prev = running.slice();
+    r.pAppr = key;
+    for (const id of running) {
+      const d = GP.drv(id), isP = d.isPlayer;
+      const A = isP ? (isStart ? START[key] : GP.APPROACH[key]) : (isStart ? (d.aggr > 70 ? START.aggr : START.normal) : aiApproach(d));
+      const team = GP.team(d.teamId);
+      let perf = GP.perfOf(d, r.rain, 'race') + A.perf;
+      let wear = A.wear;
+      let relia = team.relia;
+      if (isP) {
+        const M = GP.MIXTURE[r.mixture];
+        perf += M.perf; wear *= M.wear;
+        if (w.flags.engine) relia -= 15;
+        if (w.flags.fuel) relia -= 10;
+        relia += team.mech / 10;
+        if (key === 'ragged') S.player.xp.nerve += 0.4;
+      }
+      const lap = GP.lapFromPerf(perf, r.rain);
+      const sd = lap * 0.004 * Math.sqrt(r.lapsPer) * (1.4 - d.cons / 100) * (r.rain ? 1.7 : 1);
+      let stageT = lap * r.lapsPer + U.gauss() * sd;
+      const flap = lap * (1 - Math.random() * 0.007);
+      if (flap < r.fl.t) r.fl = { id, t: flap };
+      // incidents
+      let crashP = 0.0038 * (0.5 + dg) * A.risk * (1.6 - d.cons / 100) * (r.stage === 0 ? 1.8 : 1);
+      if (isP) crashP = 0.0038 * (0.5 + dg) * A.risk * playerRisk(r.rain) * (r.stage === 0 ? 1.8 : 1);
+      else if (r.rain) crashP *= 2.2 * (1.4 - d.wet / 100);
+      const failP = 0.02 * ((100 - relia) / 35) * wear;
+      const where = U.pick(t.corners);
+      if (U.chance(crashP)) {
+        if (isP) { r.pCrash = playerCrash('race', 0); retire(r, id, `${S.player.name} crashes at ${where}!`, 'bad'); }
+        else { const res = aiCrash(d, where); retire(r, id, res.text, res.kind); }
+        continue;
+      }
+      if (U.chance(failP)) {
+        if (U.chance(0.15)) {
+          const cf = U.pick(GP.CAT_FAILS);
+          if (isP) { r.pCrash = playerCrash('race', 0.12); r.pCrash.text = `At ${where} ${cf}. ` + r.pCrash.text; retire(r, id, `${cf} on ${S.player.name}'s car at ${where}!`, 'bad'); }
+          else { const res = aiCrash(d, where, 0.12); retire(r, id, `${cf} on ${d.name}'s car. ${res.text}`, res.kind); }
+        } else {
+          const why = U.pick(GP.FAILS);
+          retire(r, id, `${d.name} retires: ${why}.`, isP ? 'bad' : '');
+          if (isP) r.pFail = why;
+        }
+        continue;
+      }
+      tent[id] = r.cars[id].T + stageT;
+    }
+    r.tent = tent;
+    // a duel for the player?
+    if (tent.P != null) {
+      const alive = r.prev.filter((id) => tent[id] != null);
+      const i = alive.indexOf('P');
+      const ahead = alive[i - 1], behind = alive[i + 1];
+      let duel = null;
+      // drivers who dislike you come looking for a fight
+      const reach = (id) => { const t = GP.TIER ? GP.TIER(GP.drv(id).rel) : 'neutral'; return t === 'hostile' ? 2 : t === 'cold' ? 1.3 : 0.9; };
+      if (ahead && tent.P < tent[ahead] + 0.9) duel = { mode: 'attack', rival: ahead, gain: tent[ahead] - tent.P };
+      if (behind && tent[behind] < tent.P + reach(behind)) {
+        const g = tent.P - tent[behind];
+        if (!duel || g > duel.gain + 0.6) duel = { mode: 'defend', rival: behind, gain: g };
+      }
+      if (duel) {
+        S.modal = { kind: 'duel', ...duel };
+        GP.save();
+        return;
+      }
+    }
+    GP.finishStage(null);
+  };
+
+  GP.DUEL = {
+    attack: [
+      { k: 'slip', label: 'Sit in his slipstream', sub: 'Wait for him to make a mistake' },
+      { k: 'brake', label: 'Outbrake him', sub: 'Late and hard on the inside' },
+      { k: 'outside', label: 'Round the outside, flat', sub: 'Brave, fast, no margin' },
+    ],
+    defend: [
+      { k: 'cover', label: 'Cover the inside', sub: 'Defensive line, costs time' },
+      { k: 'clean', label: 'Hold your line', sub: 'Race him fair' },
+      { k: 'chop', label: 'Chop across his nose', sub: 'Dirty. Effective. Dangerous' },
+      { k: 'wave', label: 'Wave him through', sub: 'Let him go' },
+    ],
+  };
+
+  GP.resolveDuel = function (k) {
+    const S = GP.S, w = wk(), r = w.race, m = S.modal, p = S.player, st = p.stats;
+    const rv = GP.drv(m.rival);
+    S.modal = null;
+    p.xp.craft += 1;
+    const dg = GP.dangerEff();
+    const dirty = rv.rel < -30, friendly = rv.rel > 30;
+    const relMul = dirty ? 1.8 : friendly ? 0.5 : 1;
+    const corner = U.pick(tr().corners);
+    let ok = false, crash = 0, text = '';
+    const g = m.gain;
+    if (m.mode === 'attack') {
+      if (k === 'slip') { ok = U.chance(g > 0 ? U.clamp(0.25 + g * 0.15, 0.15, 0.6) : 0.1); }
+      if (k === 'brake') { ok = U.chance(U.clamp(0.36 + st.craft / 250 + g * 0.08 - rv.skill / 400 + (friendly ? 0.08 : 0) - (dirty ? 0.1 : 0), 0.08, 0.9)); crash = 0.035 * (0.5 + dg) * relMul * (1.5 - st.cons / 100); }
+      if (k === 'outside') { ok = U.chance(U.clamp(0.3 + st.nerve / 220 + g * 0.08 + (friendly ? 0.06 : 0), 0.1, 0.9)); crash = 0.07 * (0.5 + dg) * relMul * (1.4 - st.nerve / 100); }
+    } else {
+      if (k === 'cover') { ok = U.chance(U.clamp(0.55 + st.craft / 300 - g * 0.1, 0.1, 0.92)); crash = 0.01 * relMul; }
+      if (k === 'clean') { ok = U.chance(U.clamp(0.35 + st.craft / 300 - g * 0.1, 0.05, 0.85)); crash = 0.004; GP.adj('drv', rv.id, 3, 'a clean fight'); }
+      if (k === 'chop') { ok = U.chance(0.8); crash = 0.06 * (0.5 + dg) * (dirty ? 1.5 : 1); GP.adj('drv', rv.id, -14, 'you chopped him'); }
+      if (k === 'wave') { ok = false; GP.adj('drv', rv.id, 6, 'you let him by'); }
+    }
+    let duelRes = { mode: m.mode, rival: rv.id, ok };
+    if (crash && U.chance(crash)) {
+      const roll = Math.random();
+      const meOut = roll < 0.55 || roll >= 0.8;
+      const himOut = roll >= 0.55;
+      if (himOut) {
+        const res = aiCrash(rv, corner);
+        retire(r, rv.id, `${rv.name} and ${p.name} touch at ${corner}! ` + res.text, res.kind);
+        delete r.tent[rv.id];
+        if (rv.status === 'active') GP.adj('drv', rv.id, -20, 'you put him off');
+        GP.adj('rep', 0, -2, 'collision');
+      }
+      if (meOut) {
+        r.pCrash = playerCrash('race', 0.05);
+        r.pCrash.text = `Wheels interlock with ${rv.name} at ${corner}. ` + r.pCrash.text;
+        retire(r, 'P', `${p.name} is out after contact with ${rv.name}!`, 'bad');
+        delete r.tent.P;
+      }
+      text = himOut && meOut ? 'Contact! Both cars are out.' : himOut ? `Contact! ${rv.name} spins off; you continue.` : `Contact! You are out.`;
+      duelRes = null;
+    } else if (m.mode === 'attack') {
+      text = ok ? `You get by ${rv.name} at ${corner}.` : `${rv.name} holds you off.`;
+      if (ok && k !== 'slip') GP.adj('drv', rv.id, -2, 'you beat him');
+    } else {
+      text = ok ? `You keep ${rv.name} behind.` : k === 'wave' ? `You let ${rv.name} through.` : `${rv.name} gets by at ${corner}.`;
+    }
+    r.log.unshift({ lap: lapNo(r, 0.5), text, kind: 'me' });
+    GP.finishStage(duelRes);
+  };
+
+  GP.finishStage = function (duel) {
+    const S = GP.S, w = wk(), r = w.race;
+    const T = r.tent;
+    const dg = GP.dangerEff();
+    if (duel && T.P != null && T[duel.rival] != null) {
+      const rv = duel.rival;
+      if (duel.mode === 'attack') {
+        if (duel.ok) T.P = Math.min(T.P, T[rv] - 0.3);
+        else T.P = Math.max(T.P, T[rv] + U.r(0.4, 1.1));
+      } else {
+        if (duel.ok) T[rv] = Math.max(T[rv], T.P + U.r(0.3, 0.9));
+        else T[rv] = Math.min(T[rv], T.P - 0.3);
+      }
+    }
+    const list = r.prev.filter((id) => T[id] != null);
+    const crashes = [];
+    for (let i = 1; i < list.length; i++) {
+      const lead = list[i - 1], f = list[i];
+      if (T[f] >= T[lead]) continue;
+      const isDuelPair = duel && ((lead === duel.rival && f === 'P') || (lead === 'P' && f === duel.rival));
+      if (isDuelPair) { [list[i - 1], list[i]] = [f, lead]; continue; }
+      const dl = GP.drv(lead), df = GP.drv(f);
+      const gain = T[lead] - T[f];
+      const pp = U.clamp(0.3 + gain * 0.12 + (craftOf(df) - craftOf(dl)) / 150, 0.08, 0.92);
+      if (U.chance(pp)) {
+        [list[i - 1], list[i]] = [f, lead];
+        if (f === 'P' || lead === 'P') r.log.unshift({ lap: lapNo(r, 0.6), text: f === 'P' ? `You pass ${dl.name}.` : `${df.name} passes you.`, kind: 'me' });
+      } else {
+        T[f] = T[lead] + U.r(0.3, 1.0);
+        if (f !== 'P' && lead !== 'P' && U.chance(0.012 * (dl.aggr + df.aggr) / 100 * (0.5 + dg))) crashes.push([f, lead]);
+      }
+    }
+    for (let k = 1; k < list.length; k++) T[list[k]] = Math.max(T[list[k]], T[list[k - 1]] + 0.15);
+    list.forEach((id) => { r.cars[id].T = T[id]; });
+    crashes.forEach(([a, b]) => {
+      const da = GP.drv(a), db = GP.drv(b);
+      const victim = U.chance(0.5) ? da : db;
+      if (r.cars[victim.id].out) return;
+      const res = aiCrash(victim, U.pick(tr().corners));
+      retire(r, victim.id, `${da.name} and ${db.name} collide! ` + res.text, res.kind);
+    });
+    const alive = list.filter((id) => !r.cars[id].out);
+    const dead = r.order.filter((id) => r.cars[id].out).sort((a, b) => r.cars[b].outStage - r.cars[a].outStage);
+    r.order = alive.concat(dead);
+    r.stage++;
+    if (alive[0] && r.stage < r.stages && U.chance(0.35)) {
+      const ld = GP.drv(alive[0]);
+      r.log.unshift({ lap: lapNo(r), text: `Lap ${lapNo(r)}: ${ld.name} leads${alive[1] ? ' by ' + (T[alive[1]] - T[alive[0]]).toFixed(1) + 's' : ''}.`, kind: '' });
+    }
+    // the player's own crash takes over
+    if (r.pCrash) { S.modal = r.pCrash; r.pCrash = null; GP.save(); return; }
+    if (r.pFail) { S.modal = { kind: 'fail', text: `Your ${r.pFail}. You coast to a stop and climb out. Race over.` }; r.pFail = null; GP.save(); return; }
+    GP.teamOrders();
+    if (!S.modal && r.stage >= r.stages) GP.finishRace();
+    GP.save();
+  };
+
+  GP.teamOrders = function () {
+    const S = GP.S, r = wk().race, me = GP.me(), mate = GP.mate();
+    if (!mate || r.ordersDone || r.stage < 4 || r.stage >= r.stages || r.cars.P == null || r.cars.P.out || !r.cars[mate.id] || r.cars[mate.id].out) return;
+    const alive = r.order.filter((id) => !r.cars[id].out);
+    const pi = alive.indexOf('P'), mi = alive.indexOf(mate.id);
+    if (me.role === '2' && mi === pi + 1 && U.chance(0.6)) {
+      r.ordersDone = true;
+      S.modal = { kind: 'orders', mate: mate.id };
+    } else if (me.role === '1' && mi === pi - 1 && U.chance(0.6)) {
+      r.ordersDone = true;
+      if (U.chance({ close: 1, friendly: 0.9, neutral: 0.75, cold: 0.4, hostile: 0 }[GP.TIER ? GP.TIER(mate.rel) : 'neutral'])) {
+        r.cars.P.T = r.cars[mate.id].T - 0.2;
+        r.cars[mate.id].T = r.cars.P.T + 0.5;
+        r.order.splice(r.order.indexOf('P'), 1);
+        r.order.splice(r.order.indexOf(mate.id), 0, 'P');
+        r.log.unshift({ lap: lapNo(r), text: `The pit board goes out. ${mate.name} lifts and waves you through.`, kind: 'me' });
+      } else {
+        GP.adj('drv', mate.id, -8, 'ignored team orders');
+        r.log.unshift({ lap: lapNo(r), text: `The pit board orders ${mate.name} to let you by. He ignores it.`, kind: 'bad' });
+      }
+    }
+  };
+
+  GP.resolveOrders = function (obey) {
+    const S = GP.S, r = wk().race, mate = GP.drv(S.modal.mate), t = GP.myTeam();
+    S.modal = null;
+    if (obey) {
+      r.cars.P.T = r.cars[mate.id].T + 0.4;
+      const i = r.order.indexOf('P'), j = r.order.indexOf(mate.id);
+      r.order[i] = mate.id; r.order[j] = 'P';
+      GP.adj('boss', t.id, 7, 'you obeyed orders');
+      GP.adj('drv', mate.id, 6, 'you gave way');
+      r.log.unshift({ lap: lapNo(r), text: `You lift and let ${mate.name} through. Team orders.`, kind: 'me' });
+    } else {
+      GP.adj('boss', t.id, -18, 'you ignored team orders');
+      GP.adj('drv', mate.id, -14, 'you ignored team orders');
+      r.log.unshift({ lap: lapNo(r), text: `You ignore the pit board. ${t.boss} throws his hat on the ground.`, kind: 'bad' });
+    }
+    if (r.stage >= r.stages) GP.finishRace();
+    GP.save();
+  };
+
+  /* Close a crash/failure modal. Fatal crashes end the career. */
+  GP.closeIncident = function () {
+    const S = GP.S, m = S.modal, w = wk();
+    S.modal = null;
+    if (m.sev === 'fatal') { GP.die(m.where, m.session); return; }
+    if (m.session === 'practice' && w.withdrawn) { GP.simWeekendAbsent(true); return; }
+    if (m.session === 'qualifying' && w.withdrawn) { GP.simWeekendAbsent(true); return; }
+    if (m.session === 'race' && w.race && !w.race.done && w.race.stage >= w.race.stages) GP.finishRace();
+    GP.save();
+  };
+
+  /* After the player is out, run the race to the flag */
+  GP.simRest = function () {
+    const r = wk().race;
+    let guard = 0;
+    while (r.stage < r.stages && guard++ < 20) {
+      GP.raceStage('steady');
+      if (GP.S.modal) { GP.S.modal = null; GP.finishStage(null); }
+    }
+    if (!r.done) GP.finishRace();
+    GP.save();
+  };
+
+  /* A weekend without the player in the car (injured, no seat, or withdrawn mid-weekend) */
+  GP.simWeekendAbsent = function (keepQuali) {
+    const S = GP.S, w = wk();
+    if (!keepQuali || !w.quali) GP.initQuali();
+    w.withdrawn = true;
+    const order = GP.qualiOrder().filter((x) => x.id !== 'P');
+    w.grid = order.map((x) => x.id).filter((id) => { const d = GP.drv(id); return d.status === 'active' && !(d.injured > 0); });
+    GP.startRaceSilent();
+  };
+
+  GP.startRaceSilent = function () {
+    const w = wk();
+    const t = tr();
+    const r = { stage: 0, stages: 8, lapsPer: t.laps / 8, cars: {}, order: w.grid.slice(), log: [], mixture: 'std', done: false, ordersDone: true, fl: { id: null, t: Infinity }, rain: w.rainR, playerIn: false };
+    w.grid.forEach((id, i) => { r.cars[id] = { T: i * 0.45, out: false, why: '', outStage: null, grid: i + 1, teamId: GP.drv(id).teamId }; });
+    w.race = r;
+    const held = GP.S.modal; // e.g. a waiting phone call; races run without it and it comes back after
+    GP.S.modal = null;
+    let first = true, guard = 0;
+    while (r.stage < r.stages && guard++ < 20) { GP.raceStage(first ? 'normal' : 'steady', first); first = false; if (GP.S.modal) { GP.S.modal = null; GP.finishStage(null); } }
+    if (!r.done) GP.finishRace();
+    if (held && !GP.S.modal) GP.S.modal = held;
+  };
+
+  /* ================= RESULTS ================= */
+  GP.finishRace = function () {
+    const S = GP.S, w = wk(), r = w.race, p = S.player, me = GP.me();
+    if (r.done) return;
+    r.done = true;
+    const t = tr();
+    const alive = r.order.filter((id) => !r.cars[id].out);
+    const leaderT = alive.length ? r.cars[alive[0]].T : 0;
+    const avgLap = t.base * 1.06 * (r.rain ? 1.12 : 1);
+    const scored = new Set();
+    const rows = r.order.map((id, i) => {
+      const d = GP.drv(id), c = r.cars[id];
+      const row = { id, name: d.name, teamId: d.teamId || c.teamId, out: c.out, why: c.why, grid: c.grid, pts: 0 };
+      if (!c.out) {
+        row.pos = i + 1;
+        const gap = c.T - leaderT;
+        const down = Math.floor(gap / avgLap);
+        row.gap = i === 0 ? null : down >= 1 ? `+${down} lap${down > 1 ? 's' : ''}` : '+' + gap.toFixed(1) + 's';
+        row.pts = GP.POINTS[i] || 0;
+        d.pts += row.pts;
+        (d.fin = d.fin || [])[i] = (d.fin[i] || 0) + 1;
+        const ft = d.teamId ? GP.team(d.teamId) : null;
+        if (ft) (ft.fin = ft.fin || [])[i] = (ft.fin[i] || 0) + 1;
+        if (i === 0) { d.wins++; d.sWins = (d.sWins || 0) + 1; }
+        if (i < 3) d.podiums++;
+        const team = d.teamId ? GP.team(d.teamId) : null;
+        if (team && row.pts && !scored.has(team.id)) { team.pts += row.pts; scored.add(team.id); }
+      }
+      d.starts++;
+      d.sStarts = (d.sStarts || 0) + 1;
+      return row;
+    });
+    // drivers who missed this race heal a week
+    S.drivers.forEach((d) => { if (d.injured > 0 && !r.cars[d.id]) d.injured--; });
+    const res = { rows, fl: r.fl.id, notes: [], playerIn: r.playerIn, trackId: t.id, rain: r.rain };
+    S.season.results.push({ trackId: t.id, winner: alive[0] || null, podium: alive.slice(0, 3), rain: !!r.rain, fl: r.fl.id,
+      rows: rows.map((x) => ({ id: x.id, teamId: x.teamId, pos: x.pos || null, out: !!x.out, why: x.out ? x.why : '', gap: x.gap || null, grid: x.grid, pts: x.pts })) });
+    // the player's own log for the career page
+    const mine = (S.season.mine = S.season.mine || []);
+    if (r.playerIn) {
+      const row = rows.find((x) => x.id === 'P');
+      const mateRow = rows.find((x) => x.id !== 'P' && x.teamId && x.teamId === row.teamId);
+      mine.push({ trackId: t.id, teamId: row.teamId, grid: row.grid, pos: row.pos || null, out: !!row.out, why: row.out ? row.why : '', pts: row.pts, fl: r.fl.id === 'P', rain: !!r.rain,
+        mate: mateRow ? mateRow.id : null, matePos: mateRow ? mateRow.pos || null : null, mateOut: mateRow ? !!mateRow.out : false });
+    } else {
+      mine.push({ trackId: t.id, absent: true, why: me.injured > 0 ? 'Injured' : !me.teamId ? 'No drive' : w.withdrawn ? 'Withdrawn' : 'Did not start' });
+    }
+    if (alive[0]) {
+      const wd = GP.drv(alive[0]);
+      GP.news(`${t.gp}: ${wd.name} wins for ${wd.teamId ? GP.team(wd.teamId).name : ''}.`);
+    }
+    if (r.playerIn) {
+      const row = rows.find((x) => x.id === 'P');
+      const team = GP.myTeam() || (p.contract ? GP.team(p.contract.teamId) : null);
+      p.career.starts++;
+      if (team) { const sal = p.contract ? p.contract.salary : 0; if (GP.payRace && !GP.payRace(team, sal)) res.notes.push(`${team.name}'s cheque bounces. ${U.money(sal / 10)} of your salary is unpaid.`); else if (!GP.payRace) p.money += sal / 10; }
+      if (r.fl.id === 'P') p.career.fl++;
+      if (!row.out) {
+        const pos = row.pos;
+        p.career.points += row.pts;
+        p.money += row.pts * 400 + (pos === 1 ? 1500 : 0);
+        p.xp.pace += row.pts ? 2 : 1; p.xp.cons += 1;
+        if (pos === 1) { p.career.wins++; GP.adj('rep', 0, 5, 'Grand Prix win'); res.notes.push('VICTORY. The laurel wreath, the anthem, the champagne.'); }
+        if (pos <= 3) p.career.podiums++;
+        if (row.pts) GP.adj('rep', 0, row.pts * 0.6, 'points finish');
+        if (team) {
+          const exp = GP.expectedPos(me);
+          const dl = U.clamp(Math.round((exp - pos) * 1.5), -10, 10) + (pos === 1 ? 6 : 0);
+          GP.adj('boss', team.id, dl, pos <= exp ? 'beat expectations' : 'below expectations');
+          GP.adj('mech', team.id, 2, 'brought the car home');
+          S.sf.lastBelow = pos > exp + 1;
+          if (w.flags.promise) GP.adj('boss', team.id, pos <= 3 ? 8 : -15, pos <= 3 ? 'kept your promise' : 'broke your promise');
+          const mate = GP.mate();
+          if (mate && mate.role === '1') { const mr = rows.find((x) => x.id === mate.id); if (mr && !mr.out && mr.pos > pos) GP.adj('drv', mate.id, -3, 'you beat the team leader'); }
+        }
+      } else {
+        p.career.dnfs++;
+        const crashed = !/retires:/.test(row.why);
+        if (team && crashed) { GP.adj('boss', team.id, -8, 'another wrecked car'); S.sf.lastBelow = true; }
+        if (team && w.flags.promise) GP.adj('boss', team.id, -10, 'broke your promise');
+      }
+      // the wager
+      const bet = w.flags.bet;
+      if (bet) {
+        const br = rows.find((x) => x.id === bet.d);
+        const won = !row.out && (!br || br.out || br.pos > row.pos);
+        if (won) { p.money += bet.amt; GP.adj('drv', bet.d, -4, 'lost the bet to you'); res.notes.push(`${GP.drv(bet.d).name} pays up: ${U.money(bet.amt)} from the bet.`); }
+        else { p.money -= bet.amt; GP.adj('drv', bet.d, 4, 'won the bet'); res.notes.push(`You lost the bet. ${U.money(bet.amt)} to ${GP.drv(bet.d).name}, who is very gracious about it.`); }
+      }
+      // sacked?
+      const tm = GP.myTeam();
+      if (tm && tm.rel <= -65 && U.chance(0.5)) {
+        res.sacked = tm.id;
+        GP.news(`${tm.name} sack ${p.name}.`, 'bad');
+        me.teamId = null; p.contract = null;
+        GP.fillSeats();
+      }
+    }
+    w.result = res;
+    S.screen = 'result';
+    S.tab = 'race';
+  };
+})();
